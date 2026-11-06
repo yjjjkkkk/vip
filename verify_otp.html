@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify code · API Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a20; --card-2:#1d2129; --line:#282c34;
+    --text:#e6e8eb; --muted:#8b909c; --blue:#5b8def; --red:#f0575f; --cyan:#45d6b8;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:var(--bg); color:var(--text); font-family:'Inter', sans-serif;
+    -webkit-font-smoothing:antialiased; padding:20px;
+  }
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:28px 26px; width:320px; max-width:100%;
+  }
+  .mark{
+    width:36px; height:36px; border-radius:9px; margin-bottom:14px;
+    background:linear-gradient(135deg,var(--cyan),var(--blue));
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px;
+  }
+  h1{ font-size:17px; margin:0 0 4px; }
+  p.sub{ font-size:13px; color:var(--muted); margin:0 0 20px; line-height:1.5; }
+  label{ font-size:12px; color:var(--muted); display:block; margin-bottom:6px; }
+  input[type=text]{
+    width:100%; background:var(--card-2); border:1px solid var(--line); border-radius:8px;
+    color:var(--text); font-family:'JetBrains Mono',monospace; font-size:20px; letter-spacing:4px;
+    text-align:center; padding:12px; margin-bottom:14px;
+  }
+  input[type=text]:focus{ outline:2px solid var(--blue); outline-offset:1px; }
+  button{
+    width:100%; background:var(--blue); color:#fff; border:none; border-radius:8px;
+    padding:11px; font-size:14px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif;
+    margin-bottom:8px;
+  }
+  button:hover{ filter:brightness(1.1); }
+  .btn-ghost{ background:var(--card-2); color:var(--text); margin-bottom:0; }
+  .error{
+    background:rgba(240,87,95,.12); border:1px solid rgba(240,87,95,.35); color:var(--red);
+    font-size:12.5px; padding:9px 11px; border-radius:8px; margin-bottom:14px;
+  }
+</style>
+</head>
+<body>
+  <form class="card" method="POST" action="/verify-otp">
+    <div class="mark">📩</div>
+    <h1>Enter your code</h1>
+    <p class="sub">A 6-digit code was sent to you on Telegram. It expires in 5 minutes.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <label for="otp">Code</label>
+    <input type="text" id="otp" name="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" autofocus required {% if locked %}disabled{% endif %}>
+    <button type="submit" {% if locked %}disabled{% endif %}>Verify</button>
+    <button type="submit" name="resend" value="1" class="btn-ghost" {% if locked %}disabled{% endif %}>Resend code</button>
+  </form>
+</body>
+</html>

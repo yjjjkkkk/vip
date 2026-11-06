@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="{{ csrf_token }}">
+<title>API Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a20; --card-2:#1d2129; --line:#282c34;
+    --text:#e6e8eb; --muted:#8b909c; --cyan:#45d6b8; --amber:#f2a93c;
+    --red:#f0575f; --blue:#5b8def; --radius:10px;
+  }
+  *{ box-sizing:border-box; }
+  [hidden]{ display:none !important; }
+  body{ margin:0; background:var(--bg); color:var(--text); font-family:'Inter',sans-serif;
+        -webkit-font-smoothing:antialiased; padding-bottom:70px; }
+  code,.mono{ font-family:'JetBrains Mono',monospace; }
+  a{ color:inherit; }
+  .wrap{ max-width:680px; margin:0 auto; padding:18px 14px 0; }
+
+  header{ padding:6px 0 14px; display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+  header h1{ font-size:20px; margin:0 0 2px; font-weight:700; }
+  header p{ margin:0; font-size:13px; color:var(--muted); }
+  .logout-link{ font-size:12.5px; color:var(--muted); text-decoration:none; white-space:nowrap; margin-top:2px; }
+  .logout-link:hover{ color:var(--text); }
+  .credit{ text-align:center; margin-bottom:10px; }
+  .credit a{ display:inline-flex; align-items:center; gap:6px; text-decoration:none; color:var(--muted); font-size:11.5px; }
+  .credit a:hover{ color:var(--text); }
+
+  .counts{ display:flex; gap:8px; flex-wrap:wrap; }
+  .count{ display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--muted);
+          background:var(--card); border:1px solid var(--line); border-radius:999px; padding:5px 12px; white-space:nowrap; }
+  .count b{ color:var(--text); font-family:'JetBrains Mono',monospace; font-weight:500; }
+  .dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; display:inline-block; }
+  .dot.cyan{ background:var(--cyan); } .dot.grey{ background:#4a505c; }
+  .dot.red{ background:var(--red); } .dot.amber{ background:var(--amber); } .dot.blue{ background:var(--blue); }
+  .sysbar{ margin-bottom:10px; }
+
+  .upload{ display:block; background:var(--card); border:1px dashed var(--line); border-radius:var(--radius);
+           padding:18px; text-align:center; margin:16px 0 20px; cursor:pointer; transition:border-color .15s, background .15s; }
+  .upload.drag{ border-color:var(--blue); background:var(--card-2); }
+  .upload .icon{ font-size:20px; margin-bottom:6px; }
+  .upload .t1{ font-size:14px; font-weight:600; }
+  .upload .t2{ font-size:12px; color:var(--muted); margin-top:3px; }
+  input[type=file]{ display:none; }
+
+  .btn{ border:none; border-radius:8px; padding:9px 14px; font-size:13px; font-weight:600; cursor:pointer;
+        font-family:'Inter',sans-serif; transition:filter .1s, background .1s; text-decoration:none;
+        display:inline-flex; align-items:center; justify-content:center; gap:6px; color:var(--text); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn-primary{ background:var(--blue); color:#fff; }
+  .btn-primary:hover:not(:disabled){ filter:brightness(1.1); }
+  .btn-cyan{ background:rgba(69,214,184,.14); color:var(--cyan); }
+  .btn-cyan:hover:not(:disabled){ background:rgba(69,214,184,.22); }
+  .btn-amber{ background:rgba(242,169,60,.14); color:var(--amber); }
+  .btn-amber:hover:not(:disabled){ background:rgba(242,169,60,.22); }
+  .btn-ghost{ background:var(--card-2); }
+  .btn-ghost:hover:not(:disabled){ background:#242a33; }
+  .btn-red{ background:transparent; color:var(--red); border:1px solid rgba(240,87,95,.35); }
+  .btn-red:hover:not(:disabled){ background:rgba(240,87,95,.1); }
+  .btn-sm{ padding:8px 12px; font-size:12.5px; }
+  .btn-xs{ padding:4px 9px; font-size:11.5px; border-radius:6px; }
+  .btn-row{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:16px; margin-bottom:14px; }
+  .card-top{ display:flex; align-items:flex-start; gap:10px; }
+  .card-top .dot{ margin-top:6px; width:9px; height:9px; }
+  .dot.running{ background:var(--cyan); box-shadow:0 0 6px var(--cyan); }
+  .dot.stopped{ background:#4a505c; }
+  .dot.starting,.dot.installing{ background:var(--amber); animation:pulse 1s infinite; }
+  .dot.crashed{ background:var(--red); box-shadow:0 0 6px var(--red); }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+  .card-title{ flex:1; min-width:0; }
+  .name{ font-size:15px; font-weight:700; word-break:break-word; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .badge{ font-size:10.5px; font-weight:600; padding:2px 8px; border-radius:999px; background:var(--card-2);
+          border:1px solid var(--line); color:var(--muted); }
+  .badge.bot{ color:var(--blue); border-color:rgba(91,141,239,.4); background:rgba(91,141,239,.1); }
+  .status-line{ font-size:12.5px; color:var(--muted); margin-top:2px; }
+  .status-line.running{ color:var(--cyan); } .status-line.crashed{ color:var(--red); }
+  .status-line.starting,.status-line.installing{ color:var(--amber); }
+
+  .url-chip{ display:flex; align-items:center; gap:8px; margin-top:10px; background:var(--card-2);
+             border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .url-chip span{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--blue);
+                  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  .icon-btn{ background:none; border:none; color:var(--muted); cursor:pointer; padding:4px; display:inline-flex;
+             align-items:center; gap:4px; font-family:'Inter',sans-serif; font-size:11.5px; }
+  .icon-btn:hover{ color:var(--text); }
+
+  .log-preview{ margin-top:12px; background:#0a0c0f; border:1px solid var(--line); border-radius:8px;
+                padding:9px 11px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#9fb0bf;
+                line-height:1.6; max-height:78px; overflow:hidden; white-space:pre-wrap; word-break:break-all; position:relative; }
+  .log-preview.empty{ color:#4a505c; }
+
+  .details{ margin-top:12px; border-top:1px solid var(--line); padding-top:12px; }
+  .tabs{ display:flex; gap:4px; overflow-x:auto; margin-bottom:12px; padding-bottom:2px; }
+  .tab{ background:none; border:none; color:var(--muted); font-family:'Inter',sans-serif; font-size:12.5px; font-weight:600;
+        padding:7px 12px; border-radius:7px; cursor:pointer; white-space:nowrap; }
+  .tab.active{ background:var(--card-2); color:var(--text); }
+  .section-label{ font-size:11px; color:var(--muted); letter-spacing:.3px; margin:14px 0 8px; text-transform:uppercase; }
+  .section-label:first-child{ margin-top:0; }
+  .hint{ font-size:11.5px; color:var(--muted); margin-top:6px; line-height:1.5; }
+
+  /* ---- logs ---- */
+  .log-bar{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; align-items:center; }
+  .live-tag{ font-size:11.5px; color:var(--cyan); margin-left:auto; display:flex; align-items:center; gap:6px; }
+  .live-tag.paused{ color:var(--amber); }
+  .full-log{ margin:0; background:#0a0c0f; border:1px solid var(--line); border-radius:8px; padding:10px 11px;
+             font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#b4c2cf; height:300px; overflow:auto;
+             white-space:pre-wrap; word-break:break-all; line-height:1.6;
+             user-select:text; -webkit-user-select:text; }
+  .full-log:empty::before{ content:'no output yet'; color:#4a505c; }
+
+  .file-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px;
+             background:var(--card-2); border-radius:7px; margin-bottom:6px; font-family:'JetBrains Mono',monospace; font-size:12px; }
+  .file-row .fname{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
+  .file-row .sz{ color:var(--muted); font-size:10.5px; margin-left:6px; }
+  .entry-tag{ font-family:'Inter',sans-serif; font-size:10px; color:var(--blue); margin-left:6px; }
+  .file-actions{ display:flex; gap:6px; flex-shrink:0; }
+  .kv{ display:flex; flex-wrap:wrap; gap:6px 14px; padding:8px 10px; background:var(--card-2); border-radius:7px;
+       margin-bottom:6px; font-size:12px; color:var(--muted); }
+  .kv b{ color:var(--text); font-family:'JetBrains Mono',monospace; font-weight:500; }
+
+  textarea,select,input[type=text],input[type=password]{
+    width:100%; background:var(--card-2); border:1px solid var(--line); border-radius:8px; color:var(--text);
+    font-family:'JetBrains Mono',monospace; font-size:12.5px; padding:9px 10px; }
+  textarea{ min-height:90px; resize:vertical; line-height:1.5; }
+  textarea:focus,select:focus,input:focus{ outline:2px solid var(--blue); outline-offset:1px; }
+  input.pw{ margin-bottom:8px; }
+
+  .switch-row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 12px;
+               background:var(--card-2); border-radius:8px; }
+  .switch-row .t{ font-size:13px; font-weight:600; } .switch-row .s{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .switch{ position:relative; width:42px; height:24px; flex-shrink:0; }
+  .switch input{ opacity:0; width:100%; height:100%; position:absolute; margin:0; cursor:pointer; z-index:1; }
+  .switch i{ position:absolute; inset:0; background:#2a3039; border-radius:999px; transition:.15s; }
+  .switch i::after{ content:''; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#8b909c; transition:.15s; }
+  .switch input:checked + i{ background:rgba(69,214,184,.3); }
+  .switch input:checked + i::after{ left:21px; background:var(--cyan); }
+
+  .lock-toggle{ display:flex; gap:8px; margin-bottom:10px; }
+  .lock-opt{ flex:1; text-align:center; padding:9px; border-radius:7px; font-size:12.5px; font-weight:600;
+             background:var(--card-2); border:1px solid var(--line); cursor:pointer; color:var(--muted); }
+  .lock-opt.pub{ background:rgba(69,214,184,.14); color:var(--cyan); border-color:rgba(69,214,184,.35); }
+  .lock-opt.prot{ background:rgba(242,169,60,.14); color:var(--amber); border-color:rgba(242,169,60,.35); }
+
+  .empty-state{ text-align:center; padding:50px 20px; color:var(--muted); font-size:13.5px; }
+
+  .toast{ position:fixed; bottom:20px; left:50%; transform:translateX(-50%) translateY(8px); background:var(--card-2);
+          border:1px solid var(--line); padding:10px 16px; border-radius:9px; font-size:13px; opacity:0; transition:.25s;
+          pointer-events:none; display:flex; align-items:center; gap:8px; box-shadow:0 8px 20px rgba(0,0,0,.4);
+          max-width:90vw; z-index:100; }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  .overlay{ position:fixed; inset:0; background:rgba(6,8,11,.75); display:none; align-items:center; justify-content:center; z-index:50; padding:16px; }
+  .overlay.show{ display:flex; }
+  .modal{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:18px; width:340px; max-width:100%; }
+  .modal h3{ margin:0 0 8px; font-size:15px; }
+  .modal p{ margin:0 0 16px; font-size:13px; color:var(--muted); line-height:1.5; word-break:break-word; }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:8px; }
+  .modal.editor{ width:760px; height:min(86vh,720px); display:flex; flex-direction:column; }
+  .modal.editor textarea{ flex:1; min-height:0; resize:none; white-space:pre; overflow:auto; tab-size:4; }
+  .modal.editor .modal-actions{ margin-top:12px; }
+  .editor-title{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
+  .editor-title h3{ margin:0; font-size:13px; font-family:'JetBrains Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="credit">
+    <a href="https://instagram.com/sykrsingh" target="_blank" rel="noopener">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.5" y2="6.5"/></svg>
+      Made by Sykrsingh
+    </a>
+  </div>
+  <header>
+    <div>
+      <h1>API Manager</h1>
+      <p>Host Python APIs &amp; Telegram bots. Upload, run, done.</p>
+    </div>
+    <a class="logout-link" href="/logout">Sign out</a>
+  </header>
+
+  <div class="counts sysbar" id="sysbar"></div>
+  <div class="counts">
+    <div class="count"><span class="dot cyan"></span><b id="cRunning">0</b>&nbsp;running</div>
+    <div class="count"><span class="dot grey"></span><b id="cStopped">0</b>&nbsp;stopped</div>
+    <div class="count"><span class="dot red"></span><b id="cCrashed">0</b>&nbsp;crashed</div>
+  </div>
+
+  <label class="upload" id="dropzone" for="fileInput">
+    <div class="icon">📤</div>
+    <div class="t1" id="dzText">Tap to upload a .py file or a .zip project</div>
+    <div class="t2">API, Telegram bot, anything Python — or drag it here</div>
+  </label>
+  <input type="file" id="fileInput" accept=".py,.zip">
+
+  <div id="list"></div>
+</div>
+
+<div class="toast" id="toast"><span class="dot" id="toastDot"></span><span id="toastMsg"></span></div>
+
+<div class="overlay" id="confirmOv">
+  <div class="modal">
+    <h3 id="cTitle">Confirm</h3>
+    <p id="cBody"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="cNo">Cancel</button>
+      <button class="btn btn-red btn-sm" id="cYes">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="editOv">
+  <div class="modal editor">
+    <div class="editor-title"><h3 id="edPath"></h3><button class="icon-btn" id="edClose">✕ Close</button></div>
+    <textarea id="edText" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-ghost btn-sm" id="edSave">Save</button>
+      <button class="btn btn-primary btn-sm" id="edSaveRestart">Save &amp; restart app</button>
+    </div>
+  </div>
+</div>
+
+{% raw %}
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const CSRF = $('meta[name="csrf-token"]').content;
+const TEXT_EXT = /\.(py|txt|md|json|ya?ml|toml|ini|cfg|env|html?|css|js|ts|csv|sh|sql|log|xml)$/i;
+
+const listEl = $('#list');
+const cards = new Map();      // name -> runtime state for that card
+let lastApps = [];
+
+/* ---------------- helpers ---------------- */
+function toast(msg, color = 'cyan') {
+  $('#toastMsg').textContent = msg;
+  $('#toastDot').style.background = `var(--${color})`;
+  const t = $('#toast'); t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2400);
+}
+async function apiFetch(url, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  if (method !== 'GET') opts.headers = Object.assign({}, opts.headers, { 'X-CSRF-Token': CSRF });
+  const res = await fetch(url, opts);
+  if (res.status === 401) { location.href = '/login'; throw new Error('session expired'); }
+  if (res.status === 403) { toast('Security check failed — reloading…', 'red'); setTimeout(() => location.reload(), 1200); throw new Error('csrf'); }
+  return res;
+}
+async function jpost(url, body) {
+  const res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+const fmtUptime = s => { if (s == null) return ''; s = Math.floor(s); const h = Math.floor(s/3600), m = Math.floor(s%3600/60); return h ? `${h}h ${m}m` : m ? `${m}m ${s%60}s` : `${s}s`; };
+const fmtSize = b => !b ? '0 B' : b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : (b/1048576).toFixed(2) + ' MB';
+const STATUS_TXT = { running:'Running', starting:'Starting…', installing:'Installing dependencies…', stopped:'Stopped', crashed:'Crashed — see logs' };
+const setText = (el, v) => { if (el && el.textContent !== v) el.textContent = v; };
+const setHTML = (el, v) => { if (el && el.dataset.h !== v) { el.innerHTML = v; el.dataset.h = v; } };
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select(); let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    ta.remove(); return ok;
+  }
+}
+function confirmBox(title, body, yes = 'Delete') {
+  return new Promise(resolve => {
+    $('#cTitle').textContent = title; $('#cBody').textContent = body; $('#cYes').textContent = yes;
+    const ov = $('#confirmOv'); ov.classList.add('show');
+    const done = v => { ov.classList.remove('show'); $('#cYes').onclick = $('#cNo').onclick = ov.onclick = null; resolve(v); };
+    $('#cYes').onclick = () => done(true); $('#cNo').onclick = () => done(false);
+    ov.onclick = e => { if (e.target === ov) done(false); };
+  });
+}
+
+/* ---------------- upload new ---------------- */
+const fileInput = $('#fileInput'), dropzone = $('#dropzone'), dzText = $('#dzText');
+fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadNew(fileInput.files[0]); });
+['dragover','dragenter'].forEach(e => dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.add('drag'); }));
+['dragleave','drop'].forEach(e => dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.remove('drag'); }));
+dropzone.addEventListener('drop', e => { const f = e.dataTransfer.files[0]; if (f && /\.(py|zip)$/i.test(f.name)) uploadNew(f); });
+
+async function uploadNew(file) {
+  const isZip = /\.zip$/i.test(file.name);
+  dzText.textContent = isZip ? 'Extracting project…' : 'Uploading…';
+  const fd = new FormData(); fd.append('file', file);
+  try {
+    const res = await apiFetch(isZip ? '/api/upload/zip' : '/api/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    toast(isZip ? `Extracted ${data.name} (entry: ${data.entry})` : `Uploaded ${data.name}`);
+    fileInput.value = ''; refresh();
+  } catch (e) { toast(e.message, 'red'); }
+  finally { dzText.textContent = 'Tap to upload a .py file or a .zip project'; }
+}
+
+/* ---------------- card skeleton ---------------- */
+function cardHTML() {
+  return `
+  <div class="card-top">
+    <span class="dot" data-f="dot"></span>
+    <div class="card-title">
+      <div class="name"><span data-f="name"></span><span class="badge" data-f="kind"></span></div>
+      <div class="status-line" data-f="status"></div>
+      <div class="url-chip" data-f="urlchip" hidden>
+        <span data-f="url"></span>
+        <button class="icon-btn" data-act="copyurl">Copy</button>
+        <a class="icon-btn" data-f="open" target="_blank" rel="noopener">Open ↗</a>
+      </div>
+    </div>
+  </div>
+  <div class="counts" style="margin-top:12px" data-f="chips"></div>
+  <div class="log-preview empty" data-f="preview">no output yet</div>
+  <div class="btn-row">
+    <button class="btn btn-cyan btn-sm" data-act="start" data-f="bStart">▶ Start</button>
+    <button class="btn btn-amber btn-sm" data-act="stop" data-f="bStop" hidden>⏹ Stop</button>
+    <button class="btn btn-ghost btn-sm" data-act="restart" data-f="bRestart" hidden>↻ Restart</button>
+    <button class="btn btn-ghost btn-sm" data-act="toggle" data-f="bToggle">Details</button>
+    <button class="btn btn-red btn-sm" data-act="delete">Delete</button>
+  </div>
+
+  <div class="details" data-f="details" hidden>
+    <div class="tabs">
+      <button class="tab active" data-tab="logs">Logs</button>
+      <button class="tab" data-tab="files">Files</button>
+      <button class="tab" data-tab="env">Env</button>
+      <button class="tab" data-tab="setup">Setup</button>
+      <button class="tab" data-tab="access">Access</button>
+    </div>
+
+    <div data-pane="logs">
+      <div class="log-bar">
+        <button class="btn btn-ghost btn-xs" data-act="pauselog" data-f="bPause">⏸ Pause</button>
+        <button class="btn btn-ghost btn-xs" data-act="copylog">Copy all</button>
+        <a class="btn btn-ghost btn-xs" data-f="dlLog" download>Download</a>
+        <button class="btn btn-ghost btn-xs" data-act="clearlog">Clear</button>
+        <span class="live-tag" data-f="liveTag"><span class="dot cyan"></span>live</span>
+      </div>
+      <pre class="full-log" data-f="log"></pre>
+      <div class="hint">Logs update in place — your selection never resets. Press ⏸ Pause to freeze them while you copy.</div>
+    </div>
+
+    <div data-pane="files" hidden>
+      <div data-f="fileList"></div>
+      <div class="btn-row" style="margin-top:8px">
+        <button class="btn btn-ghost btn-sm" data-act="newfile">＋ New file</button>
+        <label class="btn btn-ghost btn-sm">＋ Add file(s)<input type="file" multiple data-f="addFiles"></label>
+        <label class="btn btn-ghost btn-sm">＋ Add folder<input type="file" webkitdirectory directory multiple data-f="addFolder"></label>
+        <a class="btn btn-ghost btn-sm" data-f="dlZip">⬇ Backup .zip</a>
+      </div>
+      <div class="hint">Tap a text file's <b>Edit</b> to change code right here and restart.</div>
+    </div>
+
+    <div data-pane="env" hidden>
+      <div class="section-label">Environment variables</div>
+      <textarea data-f="envText" placeholder="BOT_TOKEN=123456:ABC-DEF&#10;ADMIN_ID=123456789" spellcheck="false" autocapitalize="off"></textarea>
+      <div class="btn-row"><button class="btn btn-primary btn-sm" data-act="saveenv">Save</button></div>
+      <div class="hint">One <code>KEY=VALUE</code> per line. Use these for bot tokens &amp; secrets — read in Python with <code>os.environ["BOT_TOKEN"]</code>. Restart the app after saving. Stored on the server only.</div>
+    </div>
+
+    <div data-pane="setup" hidden>
+      <div class="section-label">Entry point</div>
+      <div class="btn-row" style="margin-top:0">
+        <select data-f="entrySel" style="flex:1;width:auto"></select>
+        <button class="btn btn-primary btn-sm" data-act="setentry">Set</button>
+      </div>
+      <div class="hint">The file that runs when you press Start.</div>
+
+      <div class="section-label">Keep running</div>
+      <div class="switch-row">
+        <div><div class="t">Auto-restart on crash</div><div class="s">Up to 5 tries per 10 min. Apps also come back after the manager restarts.</div></div>
+        <label class="switch"><input type="checkbox" data-f="autoRestart"><i></i></label>
+      </div>
+
+      <div class="section-label">Dependencies (requirements.txt)</div>
+      <textarea data-f="reqText" placeholder="python-telegram-bot&#10;requests" spellcheck="false" autocapitalize="off"></textarea>
+      <div class="btn-row"><button class="btn btn-primary btn-sm" data-act="savereqs">Save — installs on next start</button></div>
+
+      <div class="section-label">Traffic &amp; resources</div>
+      <div data-f="statsBox"></div>
+    </div>
+
+    <div data-pane="access" hidden>
+      <div class="section-label">Who can open this app's URL</div>
+      <div class="lock-toggle">
+        <div class="lock-opt" data-lock="0">🌐 Public</div>
+        <div class="lock-opt" data-lock="1">🔒 Protected</div>
+      </div>
+      <div data-f="pwBox" hidden>
+        <input type="text" class="pw" data-f="pwField" autocomplete="off" autocapitalize="off">
+        <div class="hint" style="margin:-2px 0 8px">Visitors add <code>?pass=yourpassword</code> to the URL (or send an <code>X-Api-Pass</code> header).</div>
+      </div>
+      <div class="hint" data-f="pubHint">Anyone with the link can use this app.</div>
+      <div class="btn-row"><button class="btn btn-primary btn-sm" data-act="savepw">Save access setting</button></div>
+    </div>
+  </div>`;
+}
+
+function getCard(name) {
+  let S = cards.get(name);
+  if (S) return S;
+  const el = document.createElement('div');
+  el.className = 'card'; el.dataset.name = name; el.innerHTML = cardHTML();
+  const f = {}; $$('[data-f]', el).forEach(n => f[n.dataset.f] = n);
+  S = { name, el, f, a: null, open: false, tab: 'logs',
+        log: { last: 0, epoch: -1, paused: false, busy: false, chunks: [], lines: 0 },
+        envLoaded: false, reqLoaded: false, filesSig: '', pwProt: null, pwInit: false };
+  setText(f.name, name);
+  f.dlLog.href = `/api/logs/${encodeURIComponent(name)}?format=text`;
+  f.dlLog.download = `${name}-logs.txt`;
+  f.dlZip.href = `/api/download/${encodeURIComponent(name)}`;
+  f.addFiles.onchange = () => uploadFiles(S, f.addFiles.files);
+  f.addFolder.onchange = () => uploadFiles(S, f.addFolder.files);
+  f.autoRestart.onchange = async () => {
+    try { await jpost(`/api/auto_restart/${enc(name)}`, { enabled: f.autoRestart.checked });
+          toast(f.autoRestart.checked ? 'Auto-restart on' : 'Auto-restart off'); }
+    catch (e) { toast(e.message, 'red'); f.autoRestart.checked = !f.autoRestart.checked; }
+  };
+  cards.set(name, S);
+  return S;
+}
+const enc = encodeURIComponent;
+
+/* ---------------- per-card update (in place — never re-creates the DOM) ---------------- */
+function updateCard(S, a) {
+  S.a = a; const f = S.f;
+  const dotCls = 'dot ' + a.status; if (f.dot.className !== dotCls) f.dot.className = dotCls;
+  const isBot = a.kind.startsWith('bot');
+  setText(f.kind, a.kind === 'bot' ? '🤖 bot' : a.kind === 'bot+web' ? '🤖 bot + web' : a.kind === 'web' ? 'web / api' : 'script');
+  f.kind.className = 'badge' + (isBot ? ' bot' : '');
+
+  let st = STATUS_TXT[a.status] || a.status;
+  if (a.uptime != null) st += ' · up ' + fmtUptime(a.uptime);
+  if (a.status === 'crashed' && a.exit_code != null) st += ` (exit ${a.exit_code})`;
+  if (a.protected) st += ' · 🔒';
+  if (a.restarts && a.status !== 'running') st += ` · retry ${a.restarts}/5`;
+  setText(f.status, st);
+  const stCls = 'status-line ' + a.status; if (f.status.className !== stCls) f.status.className = stCls;
+
+  const full = a.url ? location.origin + a.url : null;
+  f.urlchip.hidden = !full;
+  if (full) { setText(f.url, full); f.url.title = full; f.open.href = a.url; S.fullUrl = full; }
+
+  const chips = [];
+  if (!isBot || a.total_requests) chips.push(`<div class="count"><span class="dot cyan"></span><b>${a.total_requests}</b>&nbsp;reqs</div>`);
+  if (!isBot) chips.push(`<div class="count"><span class="dot amber"></span><b>${a.rps}</b>&nbsp;rps</div>`,
+                         `<div class="count"><span class="dot grey"></span><b>${a.avg_latency_ms}</b>&nbsp;ms</div>`);
+  if (a.mem) chips.push(`<div class="count"><span class="dot blue"></span><b>${(a.mem/1048576).toFixed(0)}</b>&nbsp;MB</div>`);
+  if (a.cpu != null && a.status === 'running') chips.push(`<div class="count"><span class="dot amber"></span><b>${a.cpu}</b>%&nbsp;cpu</div>`);
+  chips.push(`<div class="count"><span class="dot grey"></span><b>${fmtSize(a.storage_bytes)}</b></div>`);
+  if (a.error_count) chips.push(`<div class="count"><span class="dot red"></span><b>${a.error_count}</b>&nbsp;err</div>`);
+  setHTML(f.chips, chips.join(''));
+
+  const tail = (a.tail || []).join('\n');
+  const prevTxt = tail || 'no output yet';
+  if (f.preview.textContent !== prevTxt) {
+    // don't yank the text out from under someone selecting it
+    const sel = getSelection();
+    if (!(sel && !sel.isCollapsed && f.preview.contains(sel.anchorNode))) f.preview.textContent = prevTxt;
+  }
+  f.preview.classList.toggle('empty', !tail);
+
+  const active = ['running', 'starting', 'installing'].includes(a.status), busy = a.status !== 'running' && active;
+  f.bStart.hidden = active; f.bStop.hidden = !active; f.bRestart.hidden = !active;
+  f.bStop.disabled = a.status === 'installing';
+
+  if (S.open) updateOpenPanes(S);
+}
+
+function updateOpenPanes(S) {
+  const a = S.a, f = S.f;
+  if (S.tab === 'files') renderFiles(S);
+  if (S.tab === 'setup') {
+    if (document.activeElement !== f.entrySel) {
+      const opts = a.files.filter(x => x.is_py).map(x => x.name), sig = opts.join('|') + '>' + a.entry;
+      if (f.entrySel.dataset.sig !== sig) {
+        f.entrySel.innerHTML = opts.map(n => `<option value="${esc(n)}" ${n === a.entry ? 'selected' : ''}>${esc(n)}</option>`).join('');
+        f.entrySel.dataset.sig = sig;
+      }
+    }
+    if (document.activeElement !== f.autoRestart) f.autoRestart.checked = a.auto_restart;
+    setHTML(f.statsBox, `
+      <div class="kv"><span>Requests <b>${a.total_requests}</b></span><span>OK <b>${a.success_count}</b></span><span>Errors <b style="color:var(--red)">${a.error_count}</b></span></div>
+      <div class="kv"><span>RPS <b>${a.rps}</b></span><span>Latency <b>${a.avg_latency_ms} ms</b></span><span>Storage <b>${fmtSize(a.storage_bytes)}</b></span></div>
+      <div class="kv"><span>RAM <b>${a.mem ? (a.mem/1048576).toFixed(0) + ' MB' : '—'}</b></span><span>CPU <b>${a.cpu != null ? a.cpu + '%' : '—'}</b></span></div>`);
+  }
+  if (S.tab === 'access' && !S.pwInit) { S.pwProt = a.protected; S.pwInit = true; renderAccess(S); }
+}
+
+function renderFiles(S) {
+  const a = S.a, f = S.f;
+  const sig = JSON.stringify(a.files.map(x => [x.name, x.size])) + a.entry;
+  if (sig === S.filesSig) return; S.filesSig = sig;
+  f.fileList.innerHTML = a.files.map(x => `
+    <div class="file-row">
+      <span class="fname" title="${esc(x.name)}">${esc(x.name)}${x.name === a.entry ? '<span class="entry-tag">entry</span>' : ''}<span class="sz">${fmtSize(x.size)}</span></span>
+      <span class="file-actions">
+        ${TEXT_EXT.test(x.name) && x.size < 1048576 ? `<button class="btn btn-ghost btn-xs" data-act="editfile" data-file="${esc(x.name)}">Edit</button>` : ''}
+        ${x.name === a.entry ? '' : `<button class="btn btn-red btn-xs" data-act="rmfile" data-file="${esc(x.name)}">Remove</button>`}
+      </span>
+    </div>`).join('') || '<div class="hint">No files.</div>';
+}
+
+function renderAccess(S) {
+  const f = S.f;
+  $$('.lock-opt', S.el).forEach(o => {
+    const prot = o.dataset.lock === '1';
+    o.className = 'lock-opt' + (S.pwProt === prot ? (prot ? ' prot' : ' pub') : '');
+  });
+  f.pwBox.hidden = !S.pwProt; f.pubHint.hidden = !!S.pwProt;
+  f.pwField.placeholder = S.a.protected ? 'new password (leave blank to keep current)' : 'choose a password';
+}
+
+/* ---------------- logs: incremental, selection-safe ---------------- */
+function appendLog(S, lines, reset) {
+  const L = S.log, el = S.f.log;
+  if (reset) { el.textContent = ''; L.chunks = []; L.lines = 0; }
+  if (!lines.length) return;
+  const sel = getSelection();
+  const selecting = sel && !sel.isCollapsed && el.contains(sel.anchorNode);
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.appendChild(document.createTextNode(lines.join('\n') + '\n'));
+  L.chunks.push(lines.length); L.lines += lines.length;
+  if (!selecting) {            // trim old nodes only when nobody is selecting
+    while (L.lines > 3500 && L.chunks.length > 1) { L.lines -= L.chunks.shift(); el.removeChild(el.firstChild); }
+    if (atBottom) el.scrollTop = el.scrollHeight;
+  }
+}
+async function pollLog(S) {
+  const L = S.log;
+  if (L.busy || L.paused) return; L.busy = true;
+  try {
+    const res = await apiFetch(`/api/logs/${enc(S.name)}?since=${L.last}&epoch=${L.epoch}`);
+    if (!res.ok) return;
+    const d = await res.json();
+    L.last = d.last; L.epoch = d.epoch;
+    appendLog(S, d.logs, d.reset);
+  } catch (e) {} finally { L.busy = false; }
+}
+function setPaused(S, p) {
+  S.log.paused = p;
+  S.f.bPause.textContent = p ? '▶ Resume' : '⏸ Pause';
+  S.f.liveTag.className = 'live-tag' + (p ? ' paused' : '');
+  S.f.liveTag.innerHTML = p ? '<span class="dot amber"></span>paused' : '<span class="dot cyan"></span>live';
+  if (!p) pollLog(S);
+}
+setInterval(() => cards.forEach(S => { if (S.open && S.tab === 'logs') pollLog(S); }), 1200);
+
+/* ---------------- editor ---------------- */
+let ed = { S: null, path: null };
+async function openEditor(S, path) {
+  try {
+    const res = await apiFetch(`/api/filecontent/${enc(S.name)}?path=${enc(path)}`);
+    const d = await res.json(); if (!res.ok) throw new Error(d.error);
+    ed = { S, path }; $('#edPath').textContent = `${S.name} / ${path}`; $('#edText').value = d.content;
+    $('#edSaveRestart').hidden = !['running','starting'].includes(S.a.status);
+    $('#editOv').classList.add('show');
+  } catch (e) { toast(e.message, 'red'); }
+}
+async function saveEditor(restart) {
+  try {
+    await jpost(`/api/filecontent/${enc(ed.S.name)}`, { path: ed.path, content: $('#edText').value });
+    toast(`Saved ${ed.path}`);
+    if (restart) await jpost(`/api/restart/${enc(ed.S.name)}`);
+    if (restart) { ed.S.open = true; setTab(ed.S, 'logs'); }
+    $('#editOv').classList.remove('show'); refresh();
+  } catch (e) { toast(e.message, 'red'); }
+}
+$('#edClose').onclick = () => $('#editOv').classList.remove('show');
+$('#edSave').onclick = () => saveEditor(false);
+$('#edSaveRestart').onclick = () => saveEditor(true);
+$('#edText').addEventListener('keydown', e => {
+  if (e.key === 'Tab') { e.preventDefault(); const t = e.target, s = t.selectionStart; t.setRangeText('    ', s, t.selectionEnd, 'end'); }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveEditor(false); }
+});
+
+/* ---------------- tabs / details ---------------- */
+function setTab(S, tab) {
+  S.tab = tab;
+  $$('.tab', S.el).forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  $$('[data-pane]', S.el).forEach(p => p.hidden = p.dataset.pane !== tab);
+  if (tab === 'logs') { S.log.paused || pollLog(S); }
+  if (tab === 'files') { S.filesSig = ''; renderFiles(S); }
+  if (tab === 'env' && !S.envLoaded) loadInto(S, 'env', S.f.envText, 'envLoaded');
+  if (tab === 'setup') { if (!S.reqLoaded) loadInto(S, 'requirements', S.f.reqText, 'reqLoaded'); S.f.entrySel.dataset.sig = ''; updateOpenPanes(S); }
+  if (tab === 'access') { S.pwInit = false; updateOpenPanes(S); }
+}
+async function loadInto(S, kind, ta, flag) {
+  try { const r = await apiFetch(`/api/${kind}/${enc(S.name)}`); const d = await r.json(); ta.value = d.content || ''; S[flag] = true; } catch (e) {}
+}
+function toggleDetails(S) {
+  S.open = !S.open; S.f.details.hidden = !S.open;
+  S.f.bToggle.textContent = S.open ? 'Hide' : 'Details';
+  if (S.open) { setTab(S, S.tab); updateOpenPanes(S); }
+}
+async function uploadFiles(S, fileList) {
+  const files = Array.from(fileList); let ok = 0;
+  for (const file of files) {
+    const fd = new FormData(); fd.append('file', file); fd.append('relpath', file.webkitRelativePath || file.name);
+    try { const r = await apiFetch(`/api/upload/${enc(S.name)}/file`, { method: 'POST', body: fd }); if (r.ok) ok++; } catch (e) {}
+  }
+  toast(`Added ${ok} file(s) to ${S.name}`); S.filesSig = ''; refresh();
+}
+
+/* ---------------- click handling (event delegation — no inline JS, no escaping bugs) ---------------- */
+listEl.addEventListener('click', async ev => {
+  const card = ev.target.closest('.card'); if (!card) return;
+  const S = cards.get(card.dataset.name); if (!S) return;
+  const tabBtn = ev.target.closest('[data-tab]'); if (tabBtn) return setTab(S, tabBtn.dataset.tab);
+  const lockBtn = ev.target.closest('[data-lock]'); if (lockBtn) { S.pwProt = lockBtn.dataset.lock === '1'; return renderAccess(S); }
+  const btn = ev.target.closest('[data-act]'); if (!btn) return;
+  const act = btn.dataset.act, name = S.name, f = S.f;
+  try {
+    switch (act) {
+      case 'start': case 'stop': case 'restart': {
+        await jpost(`/api/${act}/${enc(name)}`);
+        toast(({start:'Starting', stop:'Stopped', restart:'Restarting'})[act] + ' ' + name, act === 'stop' ? 'amber' : 'cyan');
+        if (act !== 'stop' && !S.open) toggleDetails(S);
+        if (act !== 'stop') { setPaused(S, false); setTab(S, 'logs'); }
+        refresh(); break;
+      }
+      case 'delete':
+        if (await confirmBox('Delete app', `This stops and permanently removes "${name}" and all its files.`)) {
+          await jpost(`/api/delete/${enc(name)}`); toast(`Deleted ${name}`, 'amber'); refresh();
+        } break;
+      case 'toggle': toggleDetails(S); break;
+      case 'copyurl': if (S.fullUrl && await copyText(S.fullUrl)) toast('URL copied'); break;
+      case 'pauselog': setPaused(S, !S.log.paused); break;
+      case 'copylog': {
+        const r = await apiFetch(`/api/logs/${enc(name)}?since=0&epoch=-1`); const d = await r.json();
+        toast((await copyText(d.logs.join('\n'))) ? `Copied ${d.logs.length} lines` : 'Copy failed — use Download', d.logs ? 'cyan' : 'red'); break;
+      }
+      case 'clearlog': await jpost(`/api/logs/${enc(name)}/clear`); pollLog(S); toast('Logs cleared', 'amber'); break;
+      case 'newfile': {
+        const p = prompt('New file path (e.g. config.json or utils/helpers.py):'); if (!p) break;
+        await jpost(`/api/filecontent/${enc(name)}`, { path: p.trim(), content: '' }); S.filesSig = ''; await refresh(); openEditor(S, p.trim()); break;
+      }
+      case 'editfile': openEditor(S, btn.dataset.file); break;
+      case 'rmfile': {
+        const r = await apiFetch(`/api/file/${enc(name)}/${btn.dataset.file.split('/').map(enc).join('/')}`, { method: 'DELETE' });
+        const d = await r.json(); if (!r.ok) throw new Error(d.error); toast(`Removed ${btn.dataset.file}`, 'amber'); S.filesSig = ''; refresh(); break;
+      }
+      case 'saveenv': { const d = await jpost(`/api/env/${enc(name)}`, { content: f.envText.value }); toast(`Saved ${d.count} variable(s) — restart to apply`); break; }
+      case 'savereqs': await jpost(`/api/requirements/${enc(name)}`, { content: f.reqText.value }); toast('Saved — installs on next start'); refresh(); break;
+      case 'setentry': { const d = await jpost(`/api/entry/${enc(name)}`, { entry: f.entrySel.value }); toast(`Entry point → ${d.entry}`); refresh(); break; }
+      case 'savepw': {
+        const pw = f.pwField.value.trim();
+        if (S.pwProt && !pw && !S.a.protected) { toast('Enter a password to protect this app', 'red'); break; }
+        await jpost(`/api/password/${enc(name)}`, { protected: !!S.pwProt, password: pw });
+        f.pwField.value = ''; S.pwInit = false; toast(S.pwProt ? 'App is now password protected' : 'App is now public'); refresh(); break;
+      }
+    }
+  } catch (e) { if (!/session|csrf/.test(e.message)) toast(e.message, 'red'); }
+});
+
+/* ---------------- main refresh loop ---------------- */
+function renderSystem(sys, tg) {
+  const chips = [];
+  if (sys.mem_total) chips.push(`<div class="count"><span class="dot blue"></span>RAM&nbsp;<b>${(sys.mem_used/1048576).toFixed(0)}</b>/<b>${(sys.mem_total/1048576).toFixed(0)}</b>&nbsp;MB</div>`);
+  if (sys.cpu != null) chips.push(`<div class="count"><span class="dot amber"></span>CPU&nbsp;<b>${sys.cpu}</b>%</div>`);
+  chips.push(`<div class="count"><span class="dot grey"></span>up&nbsp;<b>${fmtUptime(sys.uptime)}</b></div>`);
+  chips.push(`<div class="count"><span class="dot ${tg.control ? 'cyan' : tg.alerts ? 'amber' : 'grey'}"></span>🤖&nbsp;${tg.control ? 'control bot on' : tg.alerts ? 'alerts only' : 'telegram off'}</div>`);
+  setHTML($('#sysbar'), chips.join(''));
+}
+
+let refreshing = false;
+async function refresh() {
+  if (refreshing) return; refreshing = true;
+  try {
+    const res = await apiFetch('/api/list'); const data = await res.json();
+    const apps = data.apps; lastApps = apps;
+    const names = new Set(apps.map(a => a.name));
+    cards.forEach((S, n) => { if (!names.has(n)) { S.el.remove(); cards.delete(n); } });
+    let prev = null;
+    apps.forEach(a => {
+      const S = getCard(a.name);
+      if (!S.el.isConnected || S.el.previousElementSibling !== prev) listEl.insertBefore(S.el, prev ? prev.nextSibling : listEl.firstChild);
+      updateCard(S, a); prev = S.el;
+    });
+    let empty = $('.empty-state', listEl);
+    if (!apps.length && !empty) { listEl.insertAdjacentHTML('beforeend', '<div class="empty-state">No apps yet — upload a .py file or .zip above to get started.</div>'); }
+    else if (apps.length && empty) empty.remove();
+    $('#cRunning').textContent = apps.filter(a => ['running','starting','installing'].includes(a.status)).length;
+    $('#cStopped').textContent = apps.filter(a => a.status === 'stopped').length;
+    $('#cCrashed').textContent = apps.filter(a => a.status === 'crashed').length;
+    renderSystem(data.system, data.telegram);
+  } catch (e) { /* server restarting */ }
+  finally { refreshing = false; }
+}
+refresh();
+setInterval(() => { if (!document.hidden) refresh(); }, 2500);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+{% endraw %}
+</body>
+</html>

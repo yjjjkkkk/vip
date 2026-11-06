@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in · API Manager</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a20; --card-2:#1d2129; --line:#282c34;
+    --text:#e6e8eb; --muted:#8b909c; --blue:#5b8def; --red:#f0575f;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:var(--bg); color:var(--text); font-family:'Inter', sans-serif;
+    -webkit-font-smoothing:antialiased; padding:20px;
+  }
+  .card{
+    background:var(--card); border:1px solid var(--line); border-radius:12px;
+    padding:28px 26px; width:320px; max-width:100%;
+  }
+  .mark{
+    width:36px; height:36px; border-radius:9px; margin-bottom:14px;
+    background:linear-gradient(135deg,#45d6b8,var(--blue));
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; color:#0f1115; font-size:16px;
+  }
+  h1{ font-size:17px; margin:0 0 4px; }
+  p.sub{ font-size:13px; color:var(--muted); margin:0 0 20px; }
+  label{ font-size:12px; color:var(--muted); display:block; margin-bottom:6px; }
+  input[type=password]{
+    width:100%; background:var(--card-2); border:1px solid var(--line); border-radius:8px;
+    color:var(--text); font-family:'JetBrains Mono',monospace; font-size:14px;
+    padding:10px 12px; margin-bottom:14px;
+  }
+  input[type=password]:focus{ outline:2px solid var(--blue); outline-offset:1px; }
+  button{
+    width:100%; background:var(--blue); color:#fff; border:none; border-radius:8px;
+    padding:11px; font-size:14px; font-weight:600; cursor:pointer; font-family:'Inter',sans-serif;
+  }
+  button:hover{ filter:brightness(1.1); }
+  button:disabled{ opacity:.5; cursor:not-allowed; }
+  .btn-ghost{ background:var(--card-2); color:var(--text); }
+  .error{
+    background:rgba(240,87,95,.12); border:1px solid rgba(240,87,95,.35); color:var(--red);
+    font-size:12.5px; padding:9px 11px; border-radius:8px; margin-bottom:14px;
+  }
+  .divider{
+    display:flex; align-items:center; gap:10px; margin:18px 0 14px;
+    color:var(--muted); font-size:11.5px; letter-spacing:.3px;
+  }
+  .divider::before, .divider::after{ content:""; flex:1; height:1px; background:var(--line); }
+  .otp-hint{ font-size:12px; color:var(--muted); margin-top:8px; line-height:1.5; text-align:center; }
+  .credit{
+    position:fixed; top:14px; left:0; right:0; display:flex; justify-content:center;
+  }
+  .credit a{
+    display:inline-flex; align-items:center; gap:6px; text-decoration:none;
+    color:var(--muted); font-size:12px; font-family:'Inter',sans-serif;
+  }
+  .credit a:hover{ color:var(--text); }
+</style>
+</head>
+<body>
+  <div class="credit">
+    <a href="https://instagram.com/mehu.madhav" target="_blank" rel="noopener">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.5" y2="6.5"/></svg>
+      Made by Mehu.madhav
+    </a>
+  </div>
+  <form class="card" method="POST" action="/login">
+    <div class="mark">λ</div>
+    <h1>Admin sign in</h1>
+    <p class="sub">Know your password? Sign in below. Forgot it? Get a one-time code instead.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <label for="password">Password</label>
+    <input type="password" id="password" name="password" autofocus required {% if locked %}disabled{% endif %}>
+    <button type="submit" {% if locked %}disabled{% endif %}>Sign in with password</button>
+
+    {% if telegram_enabled %}
+    <div class="divider">OR</div>
+    <button type="submit" formaction="/request-otp" formnovalidate class="btn-ghost" {% if locked %}disabled{% endif %}>Send me a login code on Telegram</button>
+    <p class="otp-hint">You'll get a 6-digit code on Telegram — no password needed.</p>
+    {% endif %}
+  </form>
+</body>
+</html>
