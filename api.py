@@ -3,6 +3,11 @@ API Manager v2 — host Python APIs *and* Telegram bots from one dashboard.
 
 Everything secret comes from environment variables (or a local .env file). See .env.example.
 Run:   python api.py          (uses waitress automatically if installed)
+
+New in this version: Server tab (where/how it runs: OS, RAM, CPU, disks, IPs), Resources tab (RAM / CPU /
+storage / traffic per app), Backups (manual + automatic, SQLite-safe, restore, upload/download), safety
+snapshots before update/delete/restore, clean shutdown of child apps, proxy fixes.
+Optional .env:  BACKUP_INTERVAL_HOURS=24 (0=off)  BACKUP_KEEP=7  BACKUP_TELEGRAM=0  PUBLIC_IP_LOOKUP=1
 """
 import os
 import re
@@ -21,7 +26,12 @@ import tempfile
 import threading
 import subprocess
 import collections
-from urllib.parse import urlencode
+import platform
+import sqlite3
+import atexit
+import getpass
+import ipaddress
+from urllib.parse import urlencode, quote
 from functools import wraps
 
 import requests
@@ -75,6 +85,28 @@ os.makedirs(META_DIR, exist_ok=True)
 
 ON_RENDER = bool(os.environ.get("RENDER"))
 
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+
+def _env_num(name, default):
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return float(default)
+
+
+BACKUP_KEEP = max(1, int(_env_num("BACKUP_KEEP", 7)))                 # auto-backups kept per app
+BACKUP_INTERVAL_H = max(0.0, _env_num("BACKUP_INTERVAL_HOURS", 24))   # 0 = automatic backups off
+BACKUP_TELEGRAM = os.environ.get("BACKUP_TELEGRAM", "0") == "1"       # also send auto-backups to your Telegram
+SHUTTING_DOWN = False
+SERVER_KIND = "external WSGI server"
+LISTEN_HOST, LISTEN_PORT = "0.0.0.0", None
+DB_EXT = (".db", ".sqlite", ".sqlite3", ".db3", ".sql", ".rdb", ".mdb")
+DB_HINT_RE = re.compile(r"sqlite3|psycopg2?|asyncpg|pymongo|motor|pymysql|aiomysql|mysql|redis|sqlalchemy|peewee|tortoise|supabase", re.I)
+DB_HINT_MAP = {"psycopg": "postgres", "psycopg2": "postgres", "asyncpg": "postgres", "pymongo": "mongodb", "motor": "mongodb",
+               "pymysql": "mysql", "aiomysql": "mysql", "supabase": "supabase"}
+
 app = Flask(__name__)
 
 
@@ -123,7 +155,7 @@ if TRUSTED_PROXIES:
 
 LOG_LINES_KEPT = 3000
 RESERVED_NAMES = {"", "login", "logout", "request-otp", "verify-otp", "api", "static",
-                  "favicon.ico", "healthz", "robots.txt"}
+                  "favicon.ico", "healthz", "robots.txt", "manager-all"}
 # Never leak the manager's own secrets into hosted apps' environment (they can still be given
 # per-app on the Env tab if you WANT a bot to have them).
 SENSITIVE_ENV = {"ADMIN_PASSWORD", "SECRET_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "DATA_DIR"}
@@ -403,6 +435,8 @@ def set_security_headers(resp):
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["X-Frame-Options"] = "DENY"
     resp.headers["Referrer-Policy"] = "same-origin"
+    if request.path.startswith("/api/") or request.path in ("/", "/login", "/verify-otp"):
+        resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
@@ -473,12 +507,14 @@ def new_entry(name, d, entry, meta=None):
         "gen": 0, "restart_times": [], "exit_code": None, "installed_hash": None,
         "total_requests": 0, "success_count": 0, "error_count": 0, "total_latency_ms": 0.0,
         "request_times": collections.deque(maxlen=300), "last_request_at": None,
-        "_fs": None, "_ps": None,
+        "_fs": None, "_ps": None, "_stat": None,
+        "mem_hist": collections.deque(maxlen=75), "total_bytes_in": 0, "total_bytes_out": 0,
+        "auto_backup": meta.get("auto_backup", True),
     }
 
 
 def save_meta(info):
-    data = {k: info.get(k) for k in ("entry", "protected", "password_hash", "env", "desired", "auto_restart")}
+    data = {k: info.get(k) for k in ("entry", "protected", "password_hash", "env", "desired", "auto_restart", "auto_backup")}
     path = meta_path(info["name"])
     try:
         tmp = path + ".tmp"
@@ -593,7 +629,10 @@ def scan_app(info):
         pass
     bot, web = bool(BOT_RE.search(blob)), bool(WEB_RE.search(blob))
     kind = "bot+web" if bot and web else "bot" if bot else "web" if web else "script"
-    return {"t": time.time(), "files": files, "size": total, "kind": kind}
+    dbs = [{"name": f["name"], "size": f["size"]} for f in files if f["name"].lower().endswith(DB_EXT)]
+    hints = sorted({DB_HINT_MAP.get(m.lower(), m.lower().replace("sqlite3", "sqlite")) for m in DB_HINT_RE.findall(blob)})
+    return {"t": time.time(), "files": files, "size": total, "kind": kind,
+            "dbs": dbs, "db_size": sum(d["size"] for d in dbs), "db_hints": hints}
 
 
 def fs_info(info, force=False):
@@ -605,13 +644,18 @@ def fs_info(info, force=False):
     return c
 
 
-def proc_stats(info):
-    if not psutil:
-        return {"mem": None, "cpu": None}
+def sample_proc(info):
+    """Measure one app's process tree. Called ONLY by the sampler thread (cpu_percent needs one caller)."""
     proc = info.get("process")
     if not proc or proc.poll() is not None:
         info["_ps"] = None
         return {"mem": 0, "cpu": 0.0}
+    if not psutil:
+        rss = None
+        for ln in _read(f"/proc/{proc.pid}/status", 4096).splitlines():
+            if ln.startswith("VmRSS:"):
+                rss = int(ln.split()[1]) * 1024
+        return {"mem": rss, "cpu": None}
     try:
         ps = info.get("_ps")
         if ps is None or ps.pid != proc.pid:
@@ -628,26 +672,30 @@ def proc_stats(info):
         return {"mem": None, "cpu": None}
 
 
-def system_stats():
+def proc_stats(info):
+    proc = info.get("process")
+    if not proc or proc.poll() is not None:
+        return {"mem": 0, "cpu": 0.0}
+    return info.get("_stat") or {"mem": None, "cpu": None}
+
+
+def system_stats(fresh=False):
     out = {"mem_used": None, "mem_total": None, "cpu": None, "uptime": time.time() - BOOT_TIME}
     # Inside a container (Render) the cgroup limit is the real ceiling, not the host's RAM.
-    try:
-        for cur, mx in (("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
-                        ("/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes")):
-            if os.path.exists(cur) and os.path.exists(mx):
-                used = int(open(cur).read().strip())
-                lim = open(mx).read().strip()
-                if lim.isdigit() and int(lim) < 1 << 50:
-                    out["mem_used"], out["mem_total"] = used, int(lim)
-                break
-    except Exception:
-        pass
+    for cur, mx in (("/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory.max"),
+                    ("/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes")):
+        if os.path.exists(cur) and os.path.exists(mx):
+            used, lim = _read(cur, 64), _read(mx, 64)
+            if used.isdigit() and lim.isdigit() and int(lim) < 1 << 50:
+                out["mem_used"], out["mem_total"] = int(used), int(lim)
+            break
+    if out["mem_total"] is None:
+        md = memory_detail()
+        if md:
+            out["mem_used"], out["mem_total"] = md["used"], md["total"]
     if psutil:
         try:
-            if out["mem_total"] is None:
-                vm = psutil.virtual_memory()
-                out["mem_used"], out["mem_total"] = vm.total - vm.available, vm.total
-            out["cpu"] = psutil.cpu_percent(None)
+            out["cpu"] = psutil.cpu_percent(None) if (fresh or not HISTORY) else HISTORY[-1]["cpu"]
         except Exception:
             pass
     return out
@@ -656,6 +704,358 @@ def system_stats():
 def compute_rps(info, window=60):
     now = time.time()
     return round(len([t for t in list(info["request_times"]) if t >= now - window]) / window, 2)
+
+
+# ======================================================================================
+#  Server info (where is this running?), live history sampler, disk/RAM alerts
+# ======================================================================================
+
+SAMPLE_EVERY = 4                          # seconds between samples
+HISTORY = collections.deque(maxlen=300)   # ~20 minutes of system history for the charts
+ON_TERMUX = "com.termux" in os.environ.get("PREFIX", "")
+
+
+def _read(path, limit=4096):
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            return f.read(limit).strip()
+    except OSError:
+        return ""
+
+
+def _os_release():
+    data = {}
+    for ln in _read("/etc/os-release", 8192).splitlines():
+        if "=" in ln:
+            k, _, v = ln.partition("=")
+            data[k] = v.strip().strip('"')
+    return data
+
+
+def _meminfo():
+    d = {}
+    for ln in _read("/proc/meminfo", 16384).splitlines():
+        k, _, v = ln.partition(":")
+        parts = v.split()
+        if parts and parts[0].isdigit():
+            d[k] = int(parts[0]) * 1024
+    return d
+
+
+def _cpu_model():
+    for ln in _read("/proc/cpuinfo", 65536).splitlines():
+        if ":" in ln and ln.lower().startswith(("model name", "hardware")):
+            return ln.split(":", 1)[1].strip()
+    return platform.processor() or platform.machine()
+
+
+def _in_container():
+    if os.path.exists("/.dockerenv") or os.environ.get("KUBERNETES_SERVICE_HOST"):
+        return True
+    cg = _read("/proc/1/cgroup", 4096).lower()
+    return any(x in cg for x in ("docker", "kubepods", "containerd", "lxc"))
+
+
+_PROVIDERS = (("digitalocean", "DigitalOcean"), ("amazon", "AWS EC2"), ("google", "Google Cloud"),
+              ("hetzner", "Hetzner"), ("microsoft", "Azure / Hyper-V"), ("vmware", "VMware"),
+              ("oracle", "Oracle Cloud"), ("linode", "Linode / Akamai"), ("vultr", "Vultr"),
+              ("ovh", "OVH"), ("contabo", "Contabo"), ("alibaba", "Alibaba Cloud"),
+              ("innotek", "VirtualBox"), ("qemu", "KVM / QEMU"), ("kvm", "KVM"), ("xen", "Xen"))
+
+
+def detect_host_kind():
+    if ON_TERMUX:
+        return "Termux (Android phone)"
+    if ON_RENDER:
+        return "Render"
+    vendor = " ".join(_read(f"/sys/class/dmi/id/{n}", 100) for n in ("sys_vendor", "product_name", "bios_vendor")).lower()
+    for key, label in _PROVIDERS:
+        if key in vendor:
+            return label
+    return vendor.strip().title() or "unknown"
+
+
+def detect_run_mode():
+    e = os.environ
+    if e.get("INVOCATION_ID"):
+        return "systemd service"
+    if e.get("pm_id") or e.get("PM2_HOME"):
+        return "pm2"
+    if e.get("STY"):
+        return "screen session"
+    if e.get("TMUX"):
+        return "tmux session"
+    if _in_container():
+        return "Docker / container"
+    try:
+        if sys.stdin and sys.stdin.isatty():
+            return "terminal (foreground)"
+    except Exception:
+        pass
+    return "background process (nohup / detached)"
+
+
+def _safe_user():
+    try:
+        return getpass.getuser()
+    except Exception:
+        return "root"
+
+
+_pubip = {"ip": None, "t": 0.0, "busy": False}
+
+
+def public_ip():
+    """Looked up once an hour in a background thread. Disable with PUBLIC_IP_LOOKUP=0."""
+    if os.environ.get("PUBLIC_IP_LOOKUP", "1") == "0":
+        return None
+    now = time.time()
+    if _pubip["ip"] and now - _pubip["t"] < 3600:
+        return _pubip["ip"]
+    if not _pubip["busy"] and now - _pubip["t"] > 60:
+        _pubip["busy"], _pubip["t"] = True, now
+
+        def work():
+            try:
+                ip = requests.get("https://api.ipify.org", timeout=4).text.strip()[:45]
+                if re.fullmatch(r"[0-9a-fA-F:.]+", ip):
+                    _pubip["ip"] = ip
+            except Exception:
+                pass
+            finally:
+                _pubip["busy"] = False
+        threading.Thread(target=work, daemon=True).start()
+    return _pubip["ip"]
+
+
+def _local_ips():
+    out = []
+    if psutil:
+        try:
+            for nic, addrs in psutil.net_if_addrs().items():
+                for a in addrs:
+                    if a.family == socket.AF_INET and not a.address.startswith("127."):
+                        out.append(f"{a.address} ({nic})")
+        except Exception:
+            pass
+    if not out:
+        try:
+            out.append(socket.gethostbyname(socket.gethostname()))
+        except Exception:
+            pass
+    return out[:6]
+
+
+def memory_detail():
+    if psutil:
+        try:
+            vm, sw = psutil.virtual_memory(), psutil.swap_memory()
+            used = vm.total - vm.available
+            return {"total": vm.total, "used": used, "available": vm.available,
+                    "pct": round(used / vm.total * 100, 1), "swap_total": sw.total, "swap_used": sw.used}
+        except Exception:
+            pass
+    mi = _meminfo()
+    if mi.get("MemTotal"):
+        total, avail = mi["MemTotal"], mi.get("MemAvailable", mi.get("MemFree", 0))
+        st, sf = mi.get("SwapTotal", 0), mi.get("SwapFree", 0)
+        return {"total": total, "used": total - avail, "available": avail,
+                "pct": round((total - avail) / total * 100, 1), "swap_total": st, "swap_used": st - sf}
+    return {}
+
+
+def disk_list():
+    out, seen = [], set()
+    data_real = os.path.realpath(DATA_DIR)
+    if psutil:
+        try:
+            for p in psutil.disk_partitions(all=False):
+                if p.fstype in ("squashfs", "tmpfs", "devtmpfs", "iso9660") or p.device.startswith("/dev/loop"):
+                    continue
+                if p.device in seen:
+                    continue
+                seen.add(p.device)
+                try:
+                    u = psutil.disk_usage(p.mountpoint)
+                except Exception:
+                    continue
+                out.append({"dev": p.device, "mount": p.mountpoint, "fs": p.fstype, "total": u.total,
+                            "used": u.used, "free": u.free, "pct": u.percent, "holds_data": False})
+        except Exception:
+            pass
+    try:
+        du = shutil.disk_usage(DATA_DIR)
+        best = None
+        for d in out:
+            m = d["mount"].rstrip("/") or "/"
+            if (data_real == m or data_real.startswith(m.rstrip("/") + "/") or m == "/") and (best is None or len(m) > len(best["mount"])):
+                best = d
+        if best:
+            best["holds_data"] = True
+        else:
+            out.append({"dev": "data disk", "mount": data_real, "fs": "", "total": du.total, "used": du.used,
+                        "free": du.free, "pct": round(du.used / du.total * 100, 1) if du.total else 0, "holds_data": True})
+    except OSError:
+        pass
+    return out
+
+
+def top_procs(n=6):
+    if not psutil:
+        return []
+    with lock:
+        pidmap = {i["process"].pid: i["name"] for i in registry.values() if i.get("process")}
+    rows = []
+    for p in psutil.process_iter(["pid", "name", "memory_info"]):
+        try:
+            mi = p.info["memory_info"]
+            if mi:
+                rows.append({"pid": p.info["pid"], "name": (p.info["name"] or "?")[:28], "mem": mi.rss,
+                             "app": pidmap.get(p.info["pid"])})
+        except Exception:
+            continue
+    rows.sort(key=lambda r: -r["mem"])
+    return rows[:n]
+
+
+def manager_proc():
+    out = {"pid": os.getpid(), "threads": threading.active_count(), "mem": None, "started": BOOT_TIME}
+    if psutil:
+        try:
+            p = psutil.Process()
+            out["mem"] = p.memory_info().rss
+            out["started"] = p.create_time()
+            if hasattr(p, "num_fds"):
+                out["fds"] = p.num_fds()
+        except Exception:
+            pass
+    return out
+
+
+def systemd_unit_text():
+    return ("[Unit]\nDescription=API Manager\nAfter=network-online.target\nWants=network-online.target\n\n"
+            f"[Service]\nType=simple\nUser={_safe_user()}\nWorkingDirectory={BASE_DIR}\n"
+            f"ExecStart={sys.executable} {os.path.abspath(__file__)}\n"
+            "Restart=always\nRestartSec=3\nKillMode=control-group\nTimeoutStopSec=20\n\n"
+            "[Install]\nWantedBy=multi-user.target\n")
+
+
+def server_info():
+    osr, u = _os_release(), platform.uname()
+    mem = memory_detail()
+    disks = disk_list()
+    boot = None
+    if psutil:
+        try:
+            boot = psutil.boot_time()
+        except Exception:
+            pass
+    if boot is None:
+        up = _read("/proc/uptime", 64).split()
+        boot = time.time() - float(up[0]) if up else None
+    try:
+        load = [round(x, 2) for x in os.getloadavg()]
+    except (OSError, AttributeError):
+        load = None
+    net = None
+    if psutil:
+        try:
+            n = psutil.net_io_counters()
+            net = {"rx": n.bytes_recv, "tx": n.bytes_sent}
+        except Exception:
+            pass
+    cores = os.cpu_count() or 1
+    phys = None
+    if psutil:
+        try:
+            phys = psutil.cpu_count(logical=False)
+        except Exception:
+            pass
+    ip = None
+    try:
+        ip = request.remote_addr
+    except RuntimeError:
+        pass
+    warnings = []
+    if not psutil:
+        warnings.append("psutil is not installed — CPU %, per-app RAM and disk lists are limited. Fix: pip install psutil")
+    if SERVER_KIND != "waitress":
+        warnings.append("Not running under waitress (Flask dev server or external WSGI). For production run: pip install waitress")
+    if ip and (ip.startswith("127.") or ip == "::1") and not TRUSTED_PROXIES:
+        warnings.append("Every visitor looks like 127.0.0.1 (you are behind a reverse proxy). Set TRUSTED_PROXIES=1 in .env, "
+                        "otherwise all visitors share ONE login rate-limit bucket.")
+    for d in disks:
+        if d["holds_data"] and d["pct"] >= 85:
+            warnings.append(f"Disk holding your apps is {d['pct']:.0f}% full ({d['mount']}).")
+    if mem.get("pct", 0) >= 90:
+        warnings.append(f"RAM is {mem['pct']:.0f}% used — apps may get killed by the OS.")
+    if mem.get("total") and mem["total"] < 1.2 * 1024 ** 3 and not mem.get("swap_total"):
+        warnings.append("Small RAM and no swap: add a swap file so pip installs / spikes don't crash apps.")
+    return {
+        "os": osr.get("PRETTY_NAME") or f"{u.system} {u.release}", "os_id": osr.get("ID", ""),
+        "kernel": u.release, "arch": u.machine, "hostname": u.node,
+        "host_kind": detect_host_kind(), "container": _in_container(), "termux": ON_TERMUX,
+        "cpu_model": _cpu_model(), "cores": cores, "physical_cores": phys, "load": load,
+        "mem": mem, "disks": disks, "net": net, "boot": boot,
+        "public_ip": public_ip(), "local_ips": _local_ips(), "your_ip": ip,
+        "python": platform.python_version(), "python_exe": sys.executable,
+        "venv": sys.prefix != sys.base_prefix, "psutil": bool(psutil),
+        "run_mode": detect_run_mode(), "server": SERVER_KIND, "listen": f"{LISTEN_HOST}:{LISTEN_PORT}" if LISTEN_PORT else None,
+        "user": _safe_user(), "script": os.path.abspath(__file__), "cwd": os.getcwd(),
+        "base_dir": BASE_DIR, "data_dir": os.path.realpath(DATA_DIR), "apps_dir": os.path.realpath(APPS_DIR),
+        "backup_dir": os.path.realpath(BACKUP_DIR), "manager": manager_proc(), "top": top_procs(),
+        "systemd_unit": systemd_unit_text(), "warnings": warnings,
+        "telegram": {"alerts": TELEGRAM_ENABLED, "control": TELEGRAM_CONTROL},
+    }
+
+
+_alerts = {}
+
+
+def _alert_once(key, text, every=1800):
+    now = time.time()
+    if now - _alerts.get(key, 0) > every:
+        _alerts[key] = now
+        send_telegram_async(text)
+
+
+def sampler_loop():
+    """One thread measures everything (system + every app) so the numbers and charts are consistent."""
+    last, tick = None, 0
+    while not SHUTTING_DOWN:
+        t0 = time.time()
+        try:
+            s = system_stats(fresh=True)
+            pct = round(s["mem_used"] / s["mem_total"] * 100, 1) if s["mem_total"] else None
+            rx = tx = None
+            if psutil:
+                n = psutil.net_io_counters()
+                if last and t0 > last[0]:
+                    dt = t0 - last[0]
+                    rx, tx = max(0, (n.bytes_recv - last[1]) / dt), max(0, (n.bytes_sent - last[2]) / dt)
+                last = (t0, n.bytes_recv, n.bytes_sent)
+            HISTORY.append({"t": round(t0), "cpu": s["cpu"], "mem": pct, "rx": rx, "tx": tx})
+            with lock:
+                infos = list(registry.values())
+            for i in infos:
+                if i["status"] in ("running", "starting"):
+                    st = sample_proc(i)
+                    i["_stat"] = st
+                    i["mem_hist"].append(st["mem"] or 0)
+                else:
+                    i["_stat"] = None
+                    i["mem_hist"].append(0)
+            tick += 1
+            if pct and pct >= 92:
+                _alert_once("ram", f"⚠️ Server RAM is {pct:.0f}% used.")
+            if tick % 15 == 0:
+                du = shutil.disk_usage(DATA_DIR)
+                if du.total and du.used / du.total >= 0.92:
+                    _alert_once("disk", f"⚠️ Server disk is {du.used / du.total * 100:.0f}% full "
+                                        f"({du.free / 1048576:.0f} MB free). Delete old backups or logs.")
+        except Exception as e:
+            print("sampler error:", e)
+        time.sleep(max(1.0, SAMPLE_EVERY - (time.time() - t0)))
 
 
 # ======================================================================================
@@ -829,6 +1229,8 @@ def _watch_running(name, proc, gen):
 
 def _handle_exit(name, proc, gen):
     """Process died on its own. Maybe schedule an automatic restart (max 5 per 10 min)."""
+    if SHUTTING_DOWN:
+        return
     with lock:
         info = registry.get(name)
         if not info or info["process"] is not proc or info["gen"] != gen:
@@ -857,6 +1259,8 @@ def _handle_exit(name, proc, gen):
 
 
 def _auto_restart(name, gen):
+    if SHUTTING_DOWN:
+        return
     with lock:
         info = registry.get(name)
         if not info or info["gen"] != gen or info["status"] != "crashed":
@@ -907,6 +1311,9 @@ def restart_app(name):
 
 
 def delete_app(name):
+    if name not in registry:
+        return False
+    safe_backup_before(name, "pre-delete")        # deleted by accident? restore it from the Backups tab
     with lock:
         info = registry.get(name)
         if not info:
@@ -946,6 +1353,8 @@ def deploy_py(filename, data, target=None):
     fname = secure_filename(os.path.basename(filename)) or "main.py"
     if not fname.endswith(".py"):
         fname += ".py"
+    if target and target in registry:
+        safe_backup_before(target, "pre-update")
     with lock:
         existing = bool(target and target in registry)
         if existing:
@@ -1001,6 +1410,8 @@ def deploy_zip(filename, zip_path, target=None):
         py = py_files_in(root)
         if not py:
             raise ValueError("zip contains no .py files")
+        if target and target in registry:
+            safe_backup_before(target, "pre-update")
         with lock:
             existing = bool(target and target in registry)
             if existing:
@@ -1066,6 +1477,485 @@ def parse_env_text(text):
 
 
 # ======================================================================================
+#  Backups  (manual, automatic, before-update, before-delete, restore, upload/download)
+# ======================================================================================
+# A backup is ONE zip per app:  app/<files…>  +  meta.json (env, entry, password hash…)  +  backup-info.json
+# "manager-all" is one zip with every app.  SQLite databases are copied with SQLite's own online-backup API,
+# so a backup taken while the app is writing is still a valid database (a plain file copy can be corrupt).
+# NOTE: backups contain each app's environment variables (bot tokens etc.) — treat the zips as secrets.
+
+SQLITE_EXT = (".db", ".sqlite", ".sqlite3", ".db3")
+SKIP_BACKUP_SUFFIX = ("-wal", "-shm", "-journal")      # stale WAL files would corrupt a restored DB
+BACKUP_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+\.zip$")
+APP_NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
+MANAGER_ALL = "manager-all"
+KEEP_BY_KIND = {"auto": None, "pre-update": 5, "pre-restore": 5}   # auto filled from BACKUP_KEEP below
+backup_lock = threading.RLock()
+_bk_cache = {"t": 0.0, "v": []}
+
+
+def free_bytes(path=None):
+    try:
+        return shutil.disk_usage(path or BACKUP_DIR).free
+    except OSError:
+        return 0
+
+
+def _is_sqlite(path):
+    try:
+        with open(path, "rb") as f:
+            return f.read(16) == b"SQLite format 3\x00"
+    except OSError:
+        return False
+
+
+def _snapshot_sqlite(src, dst):
+    s = d = None
+    try:
+        s = sqlite3.connect(src, timeout=15)
+        d = sqlite3.connect(dst)
+        s.backup(d)
+        return True
+    except Exception:
+        return False
+    finally:
+        for c in (d, s):
+            try:
+                if c is not None:
+                    c.close()
+            except Exception:
+                pass
+
+
+def _zip_dir(zf, d, prefix, tmpdir):
+    n = 0
+    for root, dirs, files in os.walk(d):
+        dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
+        for fn in files:
+            if fn.endswith(SKIP_BACKUP_SUFFIX):
+                continue
+            full = os.path.join(root, fn)
+            src = full
+            if fn.lower().endswith(SQLITE_EXT) and _is_sqlite(full):
+                snap = os.path.join(tmpdir, secrets.token_hex(4) + ".snap")
+                if _snapshot_sqlite(full, snap):
+                    src = snap
+            try:
+                zf.write(src, prefix + os.path.relpath(full, d).replace("\\", "/"))
+                n += 1
+            except OSError:
+                pass
+    return n
+
+
+def list_backups(force=False):
+    if not force and time.time() - _bk_cache["t"] < 5:
+        return _bk_cache["v"]
+    out = []
+    try:
+        names = os.listdir(BACKUP_DIR)
+    except OSError:
+        names = []
+    for fn in names:
+        if not fn.endswith(".zip") or fn.count("__") < 2:
+            continue
+        app_, _ts, kind = fn[:-4].rsplit("__", 2)
+        try:
+            st = os.stat(os.path.join(BACKUP_DIR, fn))
+        except OSError:
+            continue
+        out.append({"file": fn, "app": app_, "kind": kind, "size": st.st_size, "created": st.st_mtime})
+    out.sort(key=lambda b: -b["created"])
+    _bk_cache.update(t=time.time(), v=out)
+    return out
+
+
+def backup_summary():
+    s = {}
+    for b in list_backups():
+        e = s.setdefault(b["app"], {"count": 0, "bytes": 0, "last": b["created"]})
+        e["count"] += 1
+        e["bytes"] += b["size"]
+    return s
+
+
+def prune_backups(name):
+    limits = dict(KEEP_BY_KIND, auto=BACKUP_KEEP)
+    seen = collections.Counter()
+    for b in list_backups(True):
+        lim = limits.get(b["kind"])
+        if b["app"] != name or lim is None:
+            continue
+        seen[b["kind"]] += 1
+        if seen[b["kind"]] > lim:
+            try:
+                os.remove(os.path.join(BACKUP_DIR, b["file"]))
+            except OSError:
+                pass
+    list_backups(True)
+
+
+def create_backup(name, kind="manual"):
+    """-> (filename, error)"""
+    with backup_lock:
+        with lock:
+            if name == MANAGER_ALL:
+                targets = [(n, i["dir"]) for n, i in sorted(registry.items())]
+            elif name in registry:
+                targets = [(name, registry[name]["dir"])]
+            else:
+                return None, "app not found"
+        if not targets:
+            return None, "there are no apps to back up"
+        if free_bytes() < 100 * 1048576:
+            return None, "less than 100 MB of free disk space — backup refused"
+        while True:
+            fname = f"{name}__{time.strftime('%Y%m%d-%H%M%S')}__{kind}.zip"
+            final = os.path.join(BACKUP_DIR, fname)
+            if not os.path.exists(final):
+                break
+            time.sleep(1)
+        part = final + ".part"
+        tmpdir = tempfile.mkdtemp(prefix="snap-", dir=BACKUP_DIR)
+        try:
+            with zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+                for n, d in targets:
+                    full_set = name == MANAGER_ALL
+                    _zip_dir(zf, d, f"apps/{n}/" if full_set else "app/", tmpdir)
+                    mp = meta_path(n)
+                    if os.path.exists(mp):
+                        zf.write(mp, f"meta/{n}.json" if full_set else "meta.json")
+                zf.writestr("backup-info.json", json.dumps({
+                    "app": name, "kind": kind, "created": time.time(), "apps": [n for n, _ in targets], "format": 2}))
+            try:
+                os.chmod(part, 0o600)
+            except OSError:
+                pass
+            os.replace(part, final)
+        except Exception as e:
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            return None, f"backup failed: {e}"
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    prune_backups(name)
+    return fname, None
+
+
+def _zip_groups(zf):
+    """-> ({app_name: (files_prefix, meta_member|None)}, info). Raises ValueError if it isn't ours."""
+    try:
+        info = json.loads(zf.read("backup-info.json"))
+    except Exception:
+        raise ValueError("this is not an API Manager backup (backup-info.json is missing)")
+    names = set(zf.namelist())
+    groups = {}
+    if info.get("app") == MANAGER_ALL:
+        for n in info.get("apps", []):
+            if APP_NAME_RE.match(str(n)):
+                groups[n] = (f"apps/{n}/", f"meta/{n}.json" if f"meta/{n}.json" in names else None)
+    elif APP_NAME_RE.match(str(info.get("app", ""))):
+        groups[info["app"]] = ("app/", "meta.json" if "meta.json" in names else None)
+    if not groups:
+        raise ValueError("backup contains no apps")
+    return groups, info
+
+
+def restore_backup(fname, as_name=None):
+    """Replace an app's files with a backup (a safety snapshot of the current state is taken first)."""
+    if not BACKUP_NAME_RE.match(fname):
+        raise ValueError("bad file name")
+    path = os.path.join(BACKUP_DIR, fname)
+    if not os.path.isfile(path):
+        raise ValueError("backup not found")
+    restored = []
+    with backup_lock:
+        try:
+            zf = zipfile.ZipFile(path)
+        except zipfile.BadZipFile:
+            raise ValueError("backup file is corrupted")
+        with zf:
+            if zf.testzip():
+                raise ValueError("backup file is corrupted")
+            groups, _info = _zip_groups(zf)
+            if as_name and (len(groups) != 1 or not APP_NAME_RE.match(as_name)):
+                raise ValueError("'restore as' needs a single-app backup and a name using letters, digits, - and _")
+            if sum(i.file_size for i in zf.infolist()) > 2 * 1024 ** 3:
+                raise ValueError("backup is larger than 2 GB — restore it manually")
+            for src_name, (prefix, meta_member) in groups.items():
+                name = as_name or src_name
+                if name.lower() in RESERVED_NAMES:
+                    raise ValueError(f"'{name}' is a reserved name")
+                with lock:
+                    existing = registry.get(name)
+                was_running = bool(existing and existing["status"] in ("running", "starting", "installing"))
+                stage = tempfile.mkdtemp(prefix="restore-", dir=DATA_DIR)
+                try:
+                    count = 0
+                    for m in zf.infolist():
+                        if m.is_dir() or not m.filename.startswith(prefix) or (m.external_attr >> 16) & 0o170000 == 0o120000:
+                            continue
+                        sj = safe_join(stage, m.filename[len(prefix):])
+                        if not sj:
+                            continue
+                        os.makedirs(os.path.dirname(sj[0]), exist_ok=True)
+                        with zf.open(m) as s, open(sj[0], "wb") as o:
+                            shutil.copyfileobj(s, o)
+                        count += 1
+                    py = py_files_in(stage)
+                    if not count or not py:
+                        raise ValueError(f"backup of '{src_name}' contains no Python files")
+                    meta = {}
+                    if meta_member:
+                        try:
+                            meta = json.loads(zf.read(meta_member))
+                        except Exception:
+                            meta = {}
+                    entry = meta.get("entry")
+                    if not entry or not os.path.isfile(os.path.join(stage, entry)):
+                        entry = pick_entry(py)
+                    if existing:
+                        create_backup(name, "pre-restore")
+                        stop_app(name, manual=False)
+                    d = app_dir_of(name)
+                    shutil.rmtree(d, ignore_errors=True)
+                    shutil.move(stage, d)
+                    stage = None
+                    try:
+                        os.chmod(d, 0o755)
+                    except OSError:
+                        pass
+                finally:
+                    if stage:
+                        shutil.rmtree(stage, ignore_errors=True)
+                with lock:
+                    if existing:
+                        existing.update(_fs=None, installed_hash=None, entry=entry)
+                        if meta_member:
+                            existing.update(env=dict(meta.get("env") or {}), protected=bool(meta.get("protected")),
+                                            password_hash=meta.get("password_hash"),
+                                            auto_restart=meta.get("auto_restart", True),
+                                            auto_backup=meta.get("auto_backup", True))
+                        save_meta(existing)
+                    else:
+                        meta["desired"] = False          # never auto-start something just restored
+                        registry[name] = new_entry(name, d, entry, meta)
+                        save_meta(registry[name])
+                restored.append(name)
+                if was_running:
+                    start_app(name)
+    list_backups(True)
+    return restored
+
+
+def tg_send_backup_file(fname, caption):
+    p = os.path.join(BACKUP_DIR, fname)
+    try:
+        if os.path.getsize(p) > 49 * 1024 * 1024:
+            send_telegram(f"⚠️ {caption}: backup is bigger than Telegram's 50 MB bot limit — kept on the server only.")
+            return
+        with open(p, "rb") as f:
+            tg_call("sendDocument", chat_id=TELEGRAM_CHAT_ID, caption=caption, files={"document": (fname, f)})
+    except OSError:
+        pass
+
+
+def latest_mtime(d):
+    m = 0.0
+    for root, dirs, files in os.walk(d):
+        dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
+        for f in files:
+            try:
+                m = max(m, os.path.getmtime(os.path.join(root, f)))
+            except OSError:
+                pass
+    return m
+
+
+def run_auto_backups():
+    """Back up every app whose files changed since its last backup (skips unchanged apps → no disk waste)."""
+    with lock:
+        items = [(n, i["dir"], i["auto_backup"]) for n, i in sorted(registry.items())]
+    last = {}
+    for b in list_backups(True):          # newest first
+        last.setdefault(b["app"], b["created"])
+    made = 0
+    for n, d, on in items:
+        if not on or latest_mtime(d) <= last.get(n, 0):
+            continue
+        fname, err = create_backup(n, "auto")
+        if fname:
+            made += 1
+            if BACKUP_TELEGRAM:
+                tg_send_backup_file(fname, f"Auto backup · {n}")
+        else:
+            print(f"auto-backup {n}: {err}")
+    return made
+
+
+def backup_scheduler():
+    time.sleep(90)
+    marker = os.path.join(BACKUP_DIR, ".last_auto")
+    while not SHUTTING_DOWN:
+        try:
+            last = os.path.getmtime(marker) if os.path.exists(marker) else 0
+            if time.time() - last >= BACKUP_INTERVAL_H * 3600:
+                run_auto_backups()
+                with open(marker, "a"):
+                    os.utime(marker, None)
+        except Exception as e:
+            print("backup scheduler error:", e)
+        time.sleep(300)
+
+
+def safe_backup_before(name, kind):
+    """Best-effort safety snapshot — never blocks the action it protects."""
+    try:
+        if name in registry and registry[name]["_fs"] is not None and registry[name]["_fs"]["size"] > 300 * 1048576:
+            return
+        create_backup(name, kind)
+    except Exception as e:
+        print(f"safety backup of {name} failed: {e}")
+
+
+@app.route("/api/backups")
+@login_required
+def api_backups():
+    bl = list_backups(True)
+    marker = os.path.join(BACKUP_DIR, ".last_auto")
+    return jsonify({
+        "backups": bl, "total_bytes": sum(b["size"] for b in bl), "free": free_bytes(),
+        "dir": os.path.realpath(BACKUP_DIR), "apps": sorted(registry),
+        "settings": {"interval_h": BACKUP_INTERVAL_H, "keep": BACKUP_KEEP, "telegram": BACKUP_TELEGRAM,
+                     "last_auto": os.path.getmtime(marker) if os.path.exists(marker) else None},
+    })
+
+
+@app.route("/api/backup/app/<name>", methods=["POST"])
+@login_required
+def api_backup_now(name):
+    fname, err = create_backup(name, "manual")
+    if err:
+        return jsonify({"error": err}), 404 if err == "app not found" else 400
+    size = os.path.getsize(os.path.join(BACKUP_DIR, fname))
+    return jsonify({"file": fname, "size": size})
+
+
+@app.route("/api/backup/download/<fname>")
+@login_required
+def api_backup_download(fname):
+    if not BACKUP_NAME_RE.match(fname) or not os.path.isfile(os.path.join(BACKUP_DIR, fname)):
+        return jsonify({"error": "not found"}), 404
+    return send_file(os.path.join(BACKUP_DIR, fname), mimetype="application/zip", as_attachment=True, download_name=fname)
+
+
+@app.route("/api/backup/restore", methods=["POST"])
+@login_required
+def api_backup_restore():
+    data = request.get_json(silent=True) or {}
+    try:
+        names = restore_backup(str(data.get("file", "")), (data.get("as_name") or "").strip() or None)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"restored": names})
+
+
+@app.route("/api/backup/delete", methods=["POST"])
+@login_required
+def api_backup_delete():
+    fname = str((request.get_json(silent=True) or {}).get("file", ""))
+    p = os.path.join(BACKUP_DIR, fname)
+    if not BACKUP_NAME_RE.match(fname) or not os.path.isfile(p):
+        return jsonify({"error": "not found"}), 404
+    os.remove(p)
+    list_backups(True)
+    return jsonify({"file": fname})
+
+
+@app.route("/api/backup/upload", methods=["POST"])
+@login_required
+def api_backup_upload():
+    file = request.files.get("file")
+    if not file or not (file.filename or "").lower().endswith(".zip"):
+        return jsonify({"error": "Please upload a backup .zip"}), 400
+    tmp = os.path.join(BACKUP_DIR, f"upload-{secrets.token_hex(4)}.part")
+    file.save(tmp)
+    try:
+        with zipfile.ZipFile(tmp) as zf:
+            _groups, info = _zip_groups(zf)
+        label = str(info.get("app"))
+        if label != MANAGER_ALL and not APP_NAME_RE.match(label):
+            raise ValueError("bad app name in backup")
+    except (ValueError, zipfile.BadZipFile) as e:
+        os.remove(tmp)
+        return jsonify({"error": str(e) if isinstance(e, ValueError) else "not a valid zip file"}), 400
+    fname = f"{label}__{time.strftime('%Y%m%d-%H%M%S')}__uploaded.zip"
+    os.replace(tmp, os.path.join(BACKUP_DIR, fname))
+    list_backups(True)
+    return jsonify({"file": fname})
+
+
+@app.route("/api/auto_backup/<name>", methods=["POST"])
+@login_required
+def api_auto_backup(name):
+    info = registry.get(name)
+    if not info:
+        return jsonify({"error": "not found"}), 404
+    with lock:
+        info["auto_backup"] = bool((request.get_json(silent=True) or {}).get("enabled"))
+        save_meta(info)
+    return jsonify({"name": name, "auto_backup": info["auto_backup"]})
+
+
+# ======================================================================================
+#  Server + resources endpoints
+# ======================================================================================
+
+@app.route("/api/server")
+@login_required
+def api_server():
+    d = server_info()
+    d["system"] = system_stats()
+    d["history"] = list(HISTORY)[-150:]
+    return jsonify(d)
+
+
+@app.route("/api/resources")
+@login_required
+def api_resources():
+    now = time.time()
+    with lock:
+        infos = [registry[k] for k in sorted(registry)]
+    bks = backup_summary()
+    rows, top = [], []
+    for i in infos:
+        fs = fs_info(i)
+        active = i["status"] in ("running", "starting")
+        ps = proc_stats(i) if active else {"mem": 0, "cpu": 0.0}
+        bk = bks.get(i["name"], {})
+        rows.append({
+            "name": i["name"], "status": i["status"], "kind": fs["kind"], "mem": ps["mem"], "cpu": ps["cpu"],
+            "storage": fs["size"], "db_size": fs["db_size"], "files": len(fs["files"]),
+            "backup_bytes": bk.get("bytes", 0), "backup_count": bk.get("count", 0),
+            "rps": compute_rps(i), "total_requests": i["total_requests"],
+            "bytes_in": i["total_bytes_in"], "bytes_out": i["total_bytes_out"],
+            "mem_hist": list(i["mem_hist"])[-60:],
+        })
+        top += [(f["size"], f"{i['name']}/{f['name']}") for f in fs["files"]]
+    top.sort(reverse=True)
+    try:
+        du = shutil.disk_usage(DATA_DIR)
+        disk = {"total": du.total, "used": du.used, "free": du.free}
+    except OSError:
+        disk = None
+    return jsonify({"apps": rows, "system": system_stats(), "disk": disk,
+                    "top_files": [{"size": s, "path": p} for s, p in top[:10]],
+                    "backup_bytes": sum(b["size"] for b in list_backups()), "backup_dir": os.path.realpath(BACKUP_DIR)})
+
+
+# ======================================================================================
 #  Dashboard + API
 # ======================================================================================
 
@@ -1081,7 +1971,7 @@ def api_me():
     return jsonify({"csrf": get_csrf_token(), "telegram": TELEGRAM_ENABLED, "control": TELEGRAM_CONTROL})
 
 
-def app_summary(info, now):
+def app_summary(info, now, bks=None):
     fs = fs_info(info)
     st = info["status"]
     total_req = info["total_requests"]
@@ -1101,6 +1991,9 @@ def app_summary(info, now):
         "avg_latency_ms": round(info["total_latency_ms"] / total_req, 1) if total_req else 0,
         "last_request_at": info["last_request_at"],
         "mem": ps["mem"], "cpu": ps["cpu"],
+        "dbs": fs["dbs"], "db_size": fs["db_size"], "db_hints": fs["db_hints"],
+        "bytes_in": info["total_bytes_in"], "bytes_out": info["total_bytes_out"],
+        "auto_backup": info["auto_backup"], "backup": (bks or {}).get(info["name"]),
         "tail": info["logs"].tail(4),
     }
 
@@ -1111,8 +2004,9 @@ def api_list():
     now = time.time()
     with lock:
         infos = [registry[k] for k in sorted(registry)]
+    bks = backup_summary()
     return jsonify({
-        "apps": [app_summary(i, now) for i in infos],
+        "apps": [app_summary(i, now, bks) for i in infos],
         "system": system_stats(),
         "telegram": {"alerts": TELEGRAM_ENABLED, "control": TELEGRAM_CONTROL},
     })
@@ -1493,38 +2387,46 @@ def proxy(name, subpath):
     fwd["X-Forwarded-Prefix"] = f"/{name}"
 
     start_t = time.time()
+    body = request.get_data()
     try:
+        # FIX: Flask hands us the *decoded* path — re-quote it, otherwise %3F / %20 / %23 change meaning upstream.
         upstream = http_session.request(
-            method=request.method, url=f"http://127.0.0.1:{port}/{subpath}",
-            headers=fwd, data=request.get_data(),
+            method=request.method, url=f"http://127.0.0.1:{port}/{quote(subpath, safe='/:@!$&()*+,;=-._~')}",
+            headers=fwd, data=body,
             params=[(k, v) for k, v in request.args.items(multi=True) if k != "pass"],
             timeout=(5, 60),
             allow_redirects=False,  # FIX: redirects were followed server-side, breaking Location/cookies
         )
         status_code = upstream.status_code
         latency_ms = (time.time() - start_t) * 1000
-        _count_request(name, status_code, latency_ms, f"{request.method} /{subpath}")
+        _count_request(name, status_code, latency_ms, f"{request.method} /{subpath}",
+                       bytes_in=len(body), bytes_out=len(upstream.content))
 
         skip = {"content-encoding", "content-length", "transfer-encoding", "connection"}
         headers = []
-        for k, v in upstream.raw.headers.items():
+        raw = upstream.raw.headers
+        for k in raw.keys():
             if k.lower() in skip:
                 continue
-            if k.lower() == "location" and v.startswith("/") and not v.startswith("//"):
-                v = f"/{name}{v}"  # keep redirects inside this app's URL prefix
-            headers.append((k, v))
+            # FIX: .items() can merge several Set-Cookie headers into one broken header — getlist keeps them apart.
+            for v in (raw.getlist(k) if hasattr(raw, "getlist") else [raw[k]]):
+                if k.lower() == "location" and v.startswith("/") and not v.startswith("//"):
+                    v = f"/{name}{v}"  # keep redirects inside this app's URL prefix
+                headers.append((k, v))
         return Response(upstream.content, status_code, headers)
     except requests.exceptions.RequestException as e:
         _count_request(name, 502, (time.time() - start_t) * 1000, f"{request.method} /{subpath}", err=str(e)[:120])
         return jsonify({"error": f"upstream error: {e}"}), 502
 
 
-def _count_request(name, status, latency_ms, label, err=None):
+def _count_request(name, status, latency_ms, label, err=None, bytes_in=0, bytes_out=0):
     info = registry.get(name)
     if not info:
         return
     with lock:
         info["total_requests"] += 1
+        info["total_bytes_in"] += bytes_in
+        info["total_bytes_out"] += bytes_out
         info["total_latency_ms"] += latency_ms
         info["request_times"].append(time.time())
         info["last_request_at"] = time.time()
@@ -1577,7 +2479,10 @@ def tg_status_text():
     crash = sum(1 for i in infos if i["status"] == "crashed")
     mem = f"{s['mem_used'] / 1048576:.0f} / {s['mem_total'] / 1048576:.0f} MB" if s["mem_total"] else "n/a"
     cpu = f"{s['cpu']}%" if s["cpu"] is not None else "n/a"
-    return (f"📊 <b>Server</b>\nRAM: {mem}\nCPU: {cpu}\nUp: {fmt_uptime(s['uptime'])}\n\n"
+    du = shutil.disk_usage(DATA_DIR)
+    return (f"📊 <b>Server</b> · {esc(platform.node())}\nRAM: {mem}\nCPU: {cpu}\n"
+            f"Disk: {du.used / 2**30:.1f} / {du.total / 2**30:.1f} GB\nBackups: {sum(b['size'] for b in list_backups()) / 1048576:.0f} MB\n"
+            f"Up: {fmt_uptime(s['uptime'])}\n\n"
             f"Apps: {len(infos)} total · {run} running · {crash} crashed")
 
 
@@ -1775,11 +2680,41 @@ def keepalive_loop():
 _bg_started = False
 
 
+def shutdown_all(*_):
+    """FIX: apps run in their own process groups, so when the manager was stopped (kill / Ctrl+C) they were
+    orphaned and kept running — then a restart launched a SECOND copy (two bots polling = Telegram 409).
+    Their `desired` flag is untouched, so they come back automatically on the next boot."""
+    global SHUTTING_DOWN
+    if SHUTTING_DOWN:
+        return
+    SHUTTING_DOWN = True
+    with lock:
+        procs = [i["process"] for i in registry.values() if i.get("process")]
+    ts = [threading.Thread(target=kill_proc, args=(p,), daemon=True) for p in procs]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join(8)
+
+
+def _on_sigterm(signum, frame):
+    shutdown_all()
+    sys.exit(0)
+
+
 def start_background():
     global _bg_started
     if _bg_started:
         return
     _bg_started = True
+    atexit.register(shutdown_all)
+    try:
+        signal.signal(signal.SIGTERM, _on_sigterm)
+    except (ValueError, OSError):
+        pass                                   # not the main thread — atexit still covers normal exits
+    threading.Thread(target=sampler_loop, daemon=True).start()
+    if BACKUP_INTERVAL_H > 0:
+        threading.Thread(target=backup_scheduler, daemon=True).start()
     threading.Thread(target=restore_apps, daemon=True).start()
     if TELEGRAM_CONTROL:
         threading.Thread(target=telegram_control_loop, daemon=True).start()
@@ -1795,8 +2730,10 @@ start_background()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
+    LISTEN_PORT = port
     try:
         from waitress import serve
+        SERVER_KIND = "waitress"
         print(f"Serving with waitress on :{port}")
         serve(app, host="0.0.0.0", port=port, threads=int(os.environ.get("THREADS", "32")),
               channel_timeout=120, max_request_body_size=300 * 1024 * 1024)
