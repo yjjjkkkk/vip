@@ -166,6 +166,50 @@
   .modal.editor .modal-actions{ margin-top:12px; }
   .editor-title{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; }
   .editor-title h3{ margin:0; font-size:13px; font-family:'JetBrains Mono',monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  /* ===== v3: layout, nav, gauges, bars ===== */
+  .wrap{ max-width:1040px; }
+  body{ background:radial-gradient(1200px 500px at 50% -200px, rgba(91,141,239,.10), transparent), var(--bg); padding-bottom:40px; }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .mark{ width:34px; height:34px; border-radius:9px; background:linear-gradient(135deg,var(--cyan),var(--blue)); display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0; }
+  .nav{ position:sticky; top:0; z-index:20; display:flex; gap:4px; padding:8px 0; margin:0 0 14px; background:rgba(15,17,21,.88); backdrop-filter:blur(10px); border-bottom:1px solid var(--line); }
+  .nav button{ flex:1; background:none; border:none; color:var(--muted); font:600 13px 'Inter',sans-serif; padding:9px 6px; border-radius:8px; cursor:pointer; white-space:nowrap; }
+  .nav button.on{ background:var(--card-2); color:var(--text); box-shadow:inset 0 -2px 0 var(--blue); }
+  #list{ display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,460px),1fr)); gap:14px; align-items:start; }
+  #list .card{ margin:0; }
+  #list .empty-state{ grid-column:1/-1; }
+  .grid{ display:grid; gap:14px; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); margin-bottom:14px; }
+  .grid .card{ margin:0; }
+  .card h2{ font-size:12px; margin:0 0 12px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; font-weight:600; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .rings{ display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:10px; }
+  .ring{ position:relative; text-align:center; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:14px 8px 10px; }
+  .ring svg{ width:84px; height:84px; transform:rotate(-90deg); }
+  .ring .rb{ fill:none; stroke:#262b34; stroke-width:8; } .ring .rf{ fill:none; stroke-width:8; stroke-linecap:round; transition:stroke-dasharray .5s; }
+  .ring .rv{ position:absolute; left:0; right:0; top:14px; height:84px; display:flex; align-items:center; justify-content:center; font:600 16px 'JetBrains Mono',monospace; }
+  .ring .rl{ font-size:12px; font-weight:600; margin-top:6px; } .ring .rs{ font-size:11px; color:var(--muted); margin-top:2px; }
+  .info{ display:grid; grid-template-columns:auto 1fr; gap:7px 14px; font-size:12.5px; margin:0; }
+  .info dt{ color:var(--muted); white-space:nowrap; } .info dd{ margin:0; font-family:'JetBrains Mono',monospace; font-size:12px; word-break:break-all; min-width:0; }
+  .bar{ height:8px; background:#262b34; border-radius:99px; overflow:hidden; display:flex; }
+  .bar i{ display:block; height:100%; background:var(--cyan); transition:width .4s; min-width:0; }
+  .bar i.amber{ background:var(--amber); } .bar i.red{ background:var(--red); } .bar i.blue{ background:var(--blue); }
+  .spark{ width:100%; height:48px; display:block; }
+  .chart-l{ display:flex; justify-content:space-between; font-size:11.5px; color:var(--muted); margin-bottom:4px; } .chart-l b{ color:var(--text); font-family:'JetBrains Mono',monospace; font-weight:500; }
+  .warn{ background:rgba(242,169,60,.1); border:1px solid rgba(242,169,60,.35); color:var(--amber); border-radius:8px; padding:9px 12px; font-size:12.5px; line-height:1.5; margin-bottom:8px; }
+  .row{ padding:10px 0; border-top:1px solid var(--line); } .row:first-child{ border-top:none; padding-top:0; }
+  .row .top{ display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:13px; margin-bottom:6px; } .row .top b{ font-weight:600; }
+  .row .sub{ font-size:11.5px; color:var(--muted); display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:6px; } .row .sub b{ color:var(--text); font-family:'JetBrains Mono',monospace; font-weight:500; }
+  .code{ background:#0a0c0f; border:1px solid var(--line); border-radius:8px; padding:10px 12px; font:11.5px/1.6 'JetBrains Mono',monospace; color:#b4c2cf; white-space:pre; overflow:auto; margin:8px 0; }
+  .seg{ display:inline-flex; background:var(--card-2); border-radius:8px; padding:3px; gap:2px; }
+  .seg button{ background:none; border:none; color:var(--muted); font:600 12px 'Inter',sans-serif; padding:5px 10px; border-radius:6px; cursor:pointer; text-transform:none; letter-spacing:0; } .seg button.on{ background:var(--bg); color:var(--text); }
+  .tiles{ display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:10px; margin-bottom:14px; }
+  .tile{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:12px 14px; } .tile .v{ font:600 20px 'JetBrains Mono',monospace; } .tile .l{ font-size:11.5px; color:var(--muted); margin-top:3px; }
+  .bk{ display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--card-2); border-radius:8px; margin-bottom:6px; flex-wrap:wrap; }
+  .bk .m{ flex:1; min-width:150px; } .bk .m b{ font-size:13px; } .bk .m div{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .badge.k-manual{ color:var(--blue); } .badge.k-auto{ color:var(--cyan); } .badge.k-pre-update,.badge.k-pre-restore{ color:var(--amber); } .badge.k-pre-delete{ color:var(--red); }
+  .muted{ color:var(--muted); }
+  .sticky-actions{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:14px; }
+  @media (max-width:520px){ .nav button{ font-size:12px; padding:9px 2px; } .info{ grid-template-columns:1fr; gap:0; } .info dd{ margin-bottom:8px; } }
+  .row .spark{ height:28px; margin-top:6px; }
 </style>
 </head>
 <body>
@@ -178,12 +222,16 @@
     </a>
   </div>
   <header>
-    <div>
+    <div class="brand"><div class="mark">⚡</div><div>
       <h1>API Manager</h1>
-      <p>Host Python APIs &amp; Telegram bots. Upload, run, done.</p>
-    </div>
+      <p>Host Python APIs &amp; Telegram bots — monitor, back up, restore.</p></div></div>
     <a class="logout-link" href="/logout">Sign out</a>
   </header>
+  <nav class="nav" id="nav">
+    <button data-view="apps" class="on">📦 Apps</button><button data-view="server">🖥 Server</button>
+    <button data-view="res">📊 Resources</button><button data-view="backups">💾 Backups</button>
+  </nav>
+  <section id="v-apps">
 
   <div class="counts sysbar" id="sysbar"></div>
   <div class="counts">
@@ -200,6 +248,51 @@
   <input type="file" id="fileInput" accept=".py,.zip">
 
   <div id="list"></div>
+  </section>
+
+  <section id="v-server" hidden>
+    <div id="srvWarn"></div>
+    <div class="rings" id="srvRings" style="margin-bottom:14px"></div>
+    <div class="grid">
+      <div class="card"><h2>📍 Where api.py is running</h2><dl class="info" id="srvWhere"></dl></div>
+      <div class="card"><h2>🖥 Machine</h2><dl class="info" id="srvMachine"></dl></div>
+    </div>
+    <div class="grid">
+      <div class="card"><h2>CPU · last few minutes</h2><div id="chCpu"></div></div>
+      <div class="card"><h2>RAM · last few minutes</h2><div id="chMem"></div></div>
+      <div class="card"><h2>Network</h2><div id="chNet"></div></div>
+    </div>
+    <div class="grid">
+      <div class="card"><h2>💽 Disks</h2><div id="srvDisks"></div></div>
+      <div class="card"><h2>🔝 Biggest processes (RAM)</h2><div id="srvTop"></div></div>
+    </div>
+    <div class="card"><h2>⚙️ Keep it running after reboot (systemd)
+      <button class="btn btn-ghost btn-xs" id="copyUnit">Copy</button></h2>
+      <div class="hint" style="margin:0 0 6px">Save as <code>/etc/systemd/system/api-manager.service</code>, then <code>sudo systemctl daemon-reload &amp;&amp; sudo systemctl enable --now api-manager</code>. Generated from the paths this server is really using.</div>
+      <pre class="code" id="srvUnit"></pre>
+    </div>
+  </section>
+
+  <section id="v-res" hidden>
+    <div class="tiles" id="resTiles"></div>
+    <div class="card">
+      <h2>Which app is using what
+        <span class="seg" id="resSort"><button data-s="mem" class="on">RAM</button><button data-s="storage">Storage</button><button data-s="traffic">Traffic</button><button data-s="cpu">CPU</button></span></h2>
+      <div id="resRows"></div>
+    </div>
+    <div class="card"><h2>📁 Biggest files across all apps</h2><div id="resTop"></div></div>
+  </section>
+
+  <section id="v-backups" hidden>
+    <div class="tiles" id="bkTiles"></div>
+    <div class="sticky-actions">
+      <button class="btn btn-primary btn-sm" id="bkAll">💾 Back up everything now</button>
+      <label class="btn btn-ghost btn-sm">⬆ Upload backup (.zip)<input type="file" id="bkUp" accept=".zip"></label>
+      <select id="bkFilter" style="width:auto;min-width:130px"></select>
+    </div>
+    <div id="bkList"></div>
+    <div class="hint" id="bkHint"></div>
+  </section>
 </div>
 
 <div class="toast" id="toast"><span class="dot" id="toastDot"></span><span id="toastMsg"></span></div>
@@ -260,7 +353,7 @@ async function jpost(url, body) {
   return data;
 }
 const fmtUptime = s => { if (s == null) return ''; s = Math.floor(s); const h = Math.floor(s/3600), m = Math.floor(s%3600/60); return h ? `${h}h ${m}m` : m ? `${m}m ${s%60}s` : `${s}s`; };
-const fmtSize = b => !b ? '0 B' : b < 1024 ? b + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : (b/1048576).toFixed(2) + ' MB';
+const fmtSize = b => b == null ? '—' : !b ? '0 B' : b < 1024 ? Math.round(b) + ' B' : b < 1048576 ? (b/1024).toFixed(1) + ' KB' : b < 1073741824 ? (b/1048576).toFixed(b < 10485760 ? 2 : 1) + ' MB' : (b/1073741824).toFixed(2) + ' GB';
 const STATUS_TXT = { running:'Running', starting:'Starting…', installing:'Installing dependencies…', stopped:'Stopped', crashed:'Crashed — see logs' };
 const setText = (el, v) => { if (el && el.textContent !== v) el.textContent = v; };
 const setHTML = (el, v) => { if (el && el.dataset.h !== v) { el.innerHTML = v; el.dataset.h = v; } };
@@ -333,6 +426,7 @@ function cardHTML() {
     <div class="tabs">
       <button class="tab active" data-tab="logs">Logs</button>
       <button class="tab" data-tab="files">Files</button>
+      <button class="tab" data-tab="data">Data &amp; backups</button>
       <button class="tab" data-tab="env">Env</button>
       <button class="tab" data-tab="setup">Setup</button>
       <button class="tab" data-tab="access">Access</button>
@@ -359,6 +453,12 @@ function cardHTML() {
         <a class="btn btn-ghost btn-sm" data-f="dlZip">⬇ Backup .zip</a>
       </div>
       <div class="hint">Tap a text file's <b>Edit</b> to change code right here and restart.</div>
+    </div>
+
+    <div data-pane="data" hidden>
+      <div class="switch-row" style="margin-bottom:12px"><div><div class="t">Automatic backups</div><div class="s">Included in the scheduled backup — only when this app's files changed.</div></div>
+        <label class="switch"><input type="checkbox" data-f="autoBackup"><i></i></label></div>
+      <div data-f="dataBox"></div>
     </div>
 
     <div data-pane="env" hidden>
@@ -426,6 +526,10 @@ function getCard(name) {
           toast(f.autoRestart.checked ? 'Auto-restart on' : 'Auto-restart off'); }
     catch (e) { toast(e.message, 'red'); f.autoRestart.checked = !f.autoRestart.checked; }
   };
+  f.autoBackup.onchange = async () => {
+    try { await jpost(`/api/auto_backup/${enc(name)}`, { enabled: f.autoBackup.checked }); toast(f.autoBackup.checked ? 'Auto-backup on' : 'Auto-backup off'); }
+    catch (e) { toast(e.message, 'red'); f.autoBackup.checked = !f.autoBackup.checked; }
+  };
   cards.set(name, S);
   return S;
 }
@@ -458,6 +562,9 @@ function updateCard(S, a) {
   if (a.mem) chips.push(`<div class="count"><span class="dot blue"></span><b>${(a.mem/1048576).toFixed(0)}</b>&nbsp;MB</div>`);
   if (a.cpu != null && a.status === 'running') chips.push(`<div class="count"><span class="dot amber"></span><b>${a.cpu}</b>%&nbsp;cpu</div>`);
   chips.push(`<div class="count"><span class="dot grey"></span><b>${fmtSize(a.storage_bytes)}</b></div>`);
+  if (a.db_size) chips.push(`<div class="count"><span class="dot amber"></span>db&nbsp;<b>${fmtSize(a.db_size)}</b></div>`);
+  if (a.backup) chips.push(`<div class="count"><span class="dot blue"></span>💾&nbsp;<b>${a.backup.count}</b>&nbsp;· ${ago(a.backup.last)}</div>`);
+  if (a.bytes_out) chips.push(`<div class="count"><span class="dot grey"></span>↑&nbsp;<b>${fmtSize(a.bytes_out)}</b></div>`);
   if (a.error_count) chips.push(`<div class="count"><span class="dot red"></span><b>${a.error_count}</b>&nbsp;err</div>`);
   setHTML(f.chips, chips.join(''));
 
@@ -480,6 +587,7 @@ function updateCard(S, a) {
 function updateOpenPanes(S) {
   const a = S.a, f = S.f;
   if (S.tab === 'files') renderFiles(S);
+  if (S.tab === 'data') renderData(S);
   if (S.tab === 'setup') {
     if (document.activeElement !== f.entrySel) {
       const opts = a.files.filter(x => x.is_py).map(x => x.name), sig = opts.join('|') + '>' + a.entry;
@@ -591,6 +699,7 @@ function setTab(S, tab) {
   $$('[data-pane]', S.el).forEach(p => p.hidden = p.dataset.pane !== tab);
   if (tab === 'logs') { S.log.paused || pollLog(S); }
   if (tab === 'files') { S.filesSig = ''; renderFiles(S); }
+  if (tab === 'data') { loadBackups(); renderData(S); }
   if (tab === 'env' && !S.envLoaded) loadInto(S, 'env', S.f.envText, 'envLoaded');
   if (tab === 'setup') { if (!S.reqLoaded) loadInto(S, 'requirements', S.f.reqText, 'reqLoaded'); S.f.entrySel.dataset.sig = ''; updateOpenPanes(S); }
   if (tab === 'access') { S.pwInit = false; updateOpenPanes(S); }
@@ -700,6 +809,203 @@ async function refresh() {
 refresh();
 setInterval(() => { if (!document.hidden) refresh(); }, 2500);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+
+/* =====================================================================================
+   v3: views (Apps / Server / Resources / Backups), charts, backup actions
+   ===================================================================================== */
+const fmtDur = s => { if (s == null) return '—'; s = Math.floor(s); const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : m ? `${m}m` : `${s}s`; };
+const ago = ts => { const s = Date.now()/1000 - ts; return s < 60 ? 'just now' : s < 3600 ? Math.floor(s/60) + ' min ago' : s < 86400 ? Math.floor(s/3600) + ' h ago' : Math.floor(s/86400) + ' d ago'; };
+const barCls = p => p >= 90 ? 'red' : p >= 70 ? 'amber' : '';
+const ringColor = p => p >= 90 ? 'var(--red)' : p >= 70 ? 'var(--amber)' : 'var(--cyan)';
+
+function ring(pct, label, sub) {
+  const p = pct == null ? 0 : Math.max(0, Math.min(100, pct)), r = 34, c = 2 * Math.PI * r;
+  return `<div class="ring"><svg viewBox="0 0 84 84"><circle cx="42" cy="42" r="${r}" class="rb"/><circle cx="42" cy="42" r="${r}" class="rf" style="stroke:${ringColor(p)};stroke-dasharray:${(c*p/100).toFixed(1)} ${c.toFixed(1)}"/></svg>
+    <div class="rv">${pct == null ? '–' : Math.round(p) + '%'}</div><div class="rl">${label}</div><div class="rs">${esc(sub)}</div></div>`;
+}
+function spark(vals, { w = 300, h = 48, color = 'var(--cyan)', max = null } = {}) {
+  const v = vals.map(x => x || 0);
+  if (v.length < 2) return `<svg class="spark" viewBox="0 0 ${w} ${h}"></svg>`;
+  const mx = max || Math.max(...v, 1) * 1.25, step = w / (v.length - 1);
+  const line = v.map((x, i) => (i ? 'L' : 'M') + (i * step).toFixed(1) + ' ' + (h - 2 - (x / mx) * (h - 4)).toFixed(1)).join('');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><path d="${line} L${w} ${h} L0 ${h}Z" style="fill:${color};opacity:.14"/><path d="${line}" style="fill:none;stroke:${color};stroke-width:1.6" vector-effect="non-scaling-stroke"/></svg>`;
+}
+const kv = rows => rows.filter(r => r[1] != null && r[1] !== '').map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
+const lastVal = a => { for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i]; return null; };
+
+/* ---------------- view switching ---------------- */
+const VIEWS = ['apps', 'server', 'res', 'backups']; let view = 'apps';
+function showView(v) {
+  if (!VIEWS.includes(v)) v = 'apps'; view = v;
+  VIEWS.forEach(x => $('#v-' + x).hidden = x !== v);
+  $$('#nav button').forEach(b => b.classList.toggle('on', b.dataset.view === v));
+  history.replaceState(null, '', v === 'apps' ? location.pathname : '#' + v);
+  tickView(true);
+}
+$('#nav').addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) showView(b.dataset.view); });
+function tickView() {
+  if (document.hidden) return;
+  if (view === 'server') loadServer();
+  else if (view === 'res') loadRes();
+  else if (view === 'backups' || [...cards.values()].some(S => S.open && S.tab === 'data')) loadBackups();
+}
+setInterval(tickView, 4000);
+
+/* ---------------- Server ---------------- */
+let srvBusy = false;
+async function loadServer() {
+  if (srvBusy) return; srvBusy = true;
+  try { renderServer(await (await apiFetch('/api/server')).json()); } catch (e) {} finally { srvBusy = false; }
+}
+function renderServer(d) {
+  const m = d.mem || {}, sys = d.system || {}, disks = d.disks || [], h = d.history || [];
+  const dd = disks.find(x => x.holds_data) || disks[0];
+  setHTML($('#srvWarn'), (d.warnings || []).map(w => `<div class="warn">⚠️ ${esc(w)}</div>`).join(''));
+  setHTML($('#srvRings'), [
+    ring(m.pct, 'RAM', m.total ? `${fmtSize(m.used)} / ${fmtSize(m.total)}` : 'n/a'),
+    ring(sys.cpu, 'CPU', `${d.cores} core${d.cores > 1 ? 's' : ''}` + (d.load ? ` · load ${d.load[0]}` : '')),
+    ring(dd ? dd.pct : null, 'Disk', dd ? `${fmtSize(dd.used)} / ${fmtSize(dd.total)}` : 'n/a'),
+    ring(m.swap_total ? m.swap_used / m.swap_total * 100 : null, 'Swap', m.swap_total ? `${fmtSize(m.swap_used)} / ${fmtSize(m.swap_total)}` : 'none'),
+  ].join(''));
+  const mg = d.manager || {};
+  setHTML($('#srvWhere'), kv([
+    ['Runs as', d.run_mode], ['Hosting', d.host_kind + (d.container ? ' · container' : '')],
+    ['Public IP', d.public_ip || 'n/a'], ['Local IP', (d.local_ips || []).join(', ')],
+    ['Listening on', d.listen], ['Web server', d.server], ['Your IP (as seen)', d.your_ip],
+    ['api.py file', d.script], ['Working dir', d.cwd], ['Apps folder', d.apps_dir], ['Backups folder', d.backup_dir],
+    ['Python', d.python + (d.venv ? ' (venv)' : '')], ['Python path', d.python_exe], ['Linux user', d.user],
+    ['Manager process', `PID ${mg.pid} · ${mg.threads} threads` + (mg.mem ? ` · ${fmtSize(mg.mem)} RAM` : '')],
+    ['Manager uptime', fmtDur(sys.uptime)],
+  ]));
+  setHTML($('#srvMachine'), kv([
+    ['OS', d.os], ['Kernel', d.kernel], ['Architecture', d.arch], ['Hostname', d.hostname], ['CPU', d.cpu_model],
+    ['Cores', d.cores + (d.physical_cores ? ` (${d.physical_cores} physical)` : '')],
+    ['Load average', d.load ? d.load.join(' · ') : null], ['RAM total', m.total ? fmtSize(m.total) : null],
+    ['RAM free', m.available ? fmtSize(m.available) : null], ['Server uptime', d.boot ? fmtDur(Date.now() / 1000 - d.boot) : null],
+    ['Network since boot', d.net ? `↓ ${fmtSize(d.net.rx)} · ↑ ${fmtSize(d.net.tx)}` : null],
+  ]));
+  const cpu = lastVal(h.map(x => x.cpu)), mem = lastVal(h.map(x => x.mem)), rx = lastVal(h.map(x => x.rx)), tx = lastVal(h.map(x => x.tx));
+  setHTML($('#chCpu'), `<div class="chart-l"><span>now</span><b>${cpu != null ? cpu + '%' : 'n/a'}</b></div>` + spark(h.map(x => x.cpu), { max: 100, color: 'var(--amber)' }));
+  setHTML($('#chMem'), `<div class="chart-l"><span>now</span><b>${mem != null ? mem + '%' : 'n/a'}</b></div>` + spark(h.map(x => x.mem), { max: 100, color: 'var(--blue)' }));
+  setHTML($('#chNet'), `<div class="chart-l"><span>↓ download</span><b>${rx != null ? fmtSize(rx) + '/s' : 'n/a'}</b></div>` + spark(h.map(x => x.rx), { h: 24 }) +
+    `<div class="chart-l" style="margin-top:8px"><span>↑ upload</span><b>${tx != null ? fmtSize(tx) + '/s' : 'n/a'}</b></div>` + spark(h.map(x => x.tx), { h: 24, color: 'var(--amber)' }));
+  setHTML($('#srvDisks'), disks.map(x => `<div class="row"><div class="top"><b class="mono">${esc(x.mount)}</b><span class="muted">${fmtSize(x.free)} free</span></div>
+    <div class="bar"><i class="${barCls(x.pct)}" style="width:${x.pct}%"></i></div>
+    <div class="sub"><span>${esc(x.dev)} ${esc(x.fs)}</span><span><b>${fmtSize(x.used)}</b> / ${fmtSize(x.total)}</span>${x.holds_data ? '<span style="color:var(--cyan)">● your apps live here</span>' : ''}</div></div>`).join('')
+    || '<div class="hint">No disk details — install psutil (pip install psutil).</div>');
+  setHTML($('#srvTop'), (d.top || []).map(p => `<div class="row"><div class="top"><span class="mono">${esc(p.name)} <span class="muted">#${p.pid}</span>${p.app ? ` <span class="badge bot">app: ${esc(p.app)}</span>` : ''}</span><b class="mono">${fmtSize(p.mem)}</b></div>
+    <div class="bar"><i class="blue" style="width:${m.total ? Math.min(100, p.mem / m.total * 100) : 0}%"></i></div></div>`).join('') || '<div class="hint">Needs psutil.</div>');
+  if ($('#srvUnit').textContent !== d.systemd_unit) $('#srvUnit').textContent = d.systemd_unit;
+}
+$('#copyUnit').onclick = async () => toast((await copyText($('#srvUnit').textContent)) ? 'Copied' : 'Copy failed', 'cyan');
+
+/* ---------------- Resources ---------------- */
+let resSort = 'mem', resData = null;
+async function loadRes() { try { resData = await (await apiFetch('/api/resources')).json(); renderRes(); } catch (e) {} }
+$('#resSort').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (!b) return; resSort = b.dataset.s;
+  $$('#resSort button').forEach(x => x.classList.toggle('on', x === b)); renderRes(); });
+function renderRes() {
+  const d = resData; if (!d) return;
+  const key = { mem: a => a.mem || 0, storage: a => a.storage + a.backup_bytes, traffic: a => a.bytes_in + a.bytes_out, cpu: a => a.cpu || 0 }[resSort];
+  const apps = d.apps.slice().sort((a, b) => key(b) - key(a)), mx = Math.max(1, ...apps.map(key));
+  const sum = f => apps.reduce((s, a) => s + (f(a) || 0), 0), sys = d.system || {};
+  setHTML($('#resTiles'), [
+    [fmtSize(sum(a => a.mem)), 'RAM used by apps' + (sys.mem_total ? ` (of ${fmtSize(sys.mem_total)})` : '')],
+    [fmtSize(sum(a => a.storage)), 'App files'], [fmtSize(sum(a => a.db_size)), 'of which databases'],
+    [fmtSize(d.backup_bytes), 'Backups'], [d.disk ? fmtSize(d.disk.free) : 'n/a', 'Disk free'],
+  ].map(([v, l]) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div></div>`).join(''));
+  setHTML($('#resRows'), apps.map(a => {
+    const val = key(a), main = { mem: a.mem ? fmtSize(a.mem) : '—', storage: fmtSize(a.storage + a.backup_bytes), traffic: fmtSize(a.bytes_in + a.bytes_out), cpu: a.cpu != null ? a.cpu + '%' : '—' }[resSort];
+    let bar;
+    if (resSort === 'storage') {
+      const code = Math.max(0, a.storage - a.db_size), w = x => (x / mx * 100).toFixed(1) + '%';
+      bar = `<div class="bar"><i style="width:${w(code)}"></i><i class="amber" style="width:${w(a.db_size)}"></i><i class="blue" style="width:${w(a.backup_bytes)}"></i></div>
+             <div class="hint" style="margin:4px 0 0">■ code &amp; files · <span style="color:var(--amber)">■ database</span> · <span style="color:var(--blue)">■ backups</span></div>`;
+    } else bar = `<div class="bar"><i style="width:${(val / mx * 100).toFixed(1)}%"></i></div>`;
+    return `<div class="row"><div class="top"><span><span class="dot ${a.status}" style="display:inline-block;margin-right:6px"></span><b>${esc(a.name)}</b> <span class="badge">${esc(a.kind)}</span></span><b class="mono">${main}</b></div>${bar}
+      ${resSort === 'mem' && a.mem_hist.length > 1 ? spark(a.mem_hist, { color: 'var(--blue)' }) : ''}
+      <div class="sub"><span>RAM <b>${a.mem ? fmtSize(a.mem) : '—'}</b></span><span>CPU <b>${a.cpu != null ? a.cpu + '%' : '—'}</b></span>
+      <span>Files <b>${fmtSize(a.storage)}</b>${a.db_size ? ` (db <b>${fmtSize(a.db_size)}</b>)` : ''}</span><span>Backups <b>${fmtSize(a.backup_bytes)}</b> ×${a.backup_count}</span>
+      <span>Traffic <b>↓${fmtSize(a.bytes_in)} ↑${fmtSize(a.bytes_out)}</b></span><span>Requests <b>${a.total_requests}</b> · <b>${a.rps}</b> rps</span></div></div>`;
+  }).join('') || '<div class="hint">No apps yet.</div>');
+  setHTML($('#resTop'), d.top_files.map(f => `<div class="file-row"><span class="fname">${esc(f.path)}</span><span class="sz">${fmtSize(f.size)}</span></div>`).join('') || '<div class="hint">Nothing yet.</div>');
+}
+
+/* ---------------- Backups ---------------- */
+let bkData = null;
+async function loadBackups() {
+  try { bkData = await (await apiFetch('/api/backups')).json(); renderBackups(); cards.forEach(S => { if (S.open && S.tab === 'data') renderData(S); }); } catch (e) {}
+}
+const bkRow = b => `<div class="bk"><div class="m"><b>${esc(b.app)}</b> <span class="badge k-${esc(b.kind)}">${esc(b.kind)}</span>
+  <div>${ago(b.created)} · ${new Date(b.created * 1000).toLocaleString()} · ${fmtSize(b.size)}</div></div>
+  <a class="btn btn-ghost btn-xs" href="/api/backup/download/${enc(b.file)}" download>⬇ Download</a>
+  <button class="btn btn-cyan btn-xs" data-act="bk_restore" data-file="${esc(b.file)}">↩ Restore</button>
+  ${b.app !== 'manager-all' ? `<button class="btn btn-ghost btn-xs" data-act="bk_copy" data-file="${esc(b.file)}">Restore as…</button>` : ''}
+  <button class="btn btn-red btn-xs" data-act="bk_del" data-file="${esc(b.file)}">Delete</button></div>`;
+function renderBackups() {
+  const d = bkData; if (!d) return; const s = d.settings;
+  setHTML($('#bkTiles'), [
+    [d.backups.length, 'Backups stored'], [fmtSize(d.total_bytes), 'Space used'], [fmtSize(d.free), 'Disk free'],
+    [s.interval_h ? `every ${s.interval_h}h` : 'off', 'Automatic backup'], [s.last_auto ? ago(s.last_auto) : 'never', 'Last automatic run'],
+  ].map(([v, l]) => `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div></div>`).join(''));
+  const sel = $('#bkFilter'), opts = ['all', ...d.apps, 'manager-all'], sig = opts.join('|');
+  if (sel.dataset.sig !== sig && document.activeElement !== sel) {
+    const cur = sel.value; sel.innerHTML = opts.map(o => `<option value="${esc(o)}">${o === 'all' ? 'All backups' : esc(o)}</option>`).join(''); sel.dataset.sig = sig; sel.value = opts.includes(cur) ? cur : 'all';
+  }
+  const f = sel.value || 'all', list = d.backups.filter(b => f === 'all' || b.app === f);
+  setHTML($('#bkList'), list.map(bkRow).join('') || '<div class="empty-state">No backups yet — press “Back up everything now”.</div>');
+  setHTML($('#bkHint'), `Folder: <code>${esc(d.dir)}</code><br>Automatic backups keep the newest ${s.keep} per app and skip apps that didn't change. ` +
+    `SQLite databases are copied with SQLite's own safe snapshot, so a backup taken while the app is writing is still valid. ` +
+    `Postgres / MySQL / Mongo / Redis servers live outside the app folder and are <b>not</b> included. ` +
+    `Backups include each app's environment variables (tokens) — keep the zip files private. ` +
+    `Settings (<code>.env</code>): BACKUP_INTERVAL_HOURS, BACKUP_KEEP, BACKUP_TELEGRAM=${s.telegram ? 1 : 0}.`);
+}
+$('#bkFilter').onchange = renderBackups;
+$('#bkAll').onclick = async () => { try { $('#bkAll').disabled = true; toast('Backing up everything…'); const d = await jpost('/api/backup/app/manager-all'); toast(`Full backup saved (${fmtSize(d.size)})`); loadBackups(); }
+  catch (e) { toast(e.message, 'red'); } finally { $('#bkAll').disabled = false; } };
+$('#bkUp').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return; const fd = new FormData(); fd.append('file', file);
+  try { const r = await apiFetch('/api/backup/upload', { method: 'POST', body: fd }), d = await r.json(); if (!r.ok) throw new Error(d.error); toast('Backup uploaded — press Restore to use it'); loadBackups(); }
+  catch (err) { toast(err.message, 'red'); } e.target.value = '';
+};
+document.addEventListener('click', async ev => {
+  const btn = ev.target.closest('[data-act^="bk_"]'); if (!btn) return;
+  const act = btn.dataset.act, file = btn.dataset.file, app = btn.dataset.app;
+  try {
+    btn.disabled = true;
+    if (act === 'bk_now') { toast(`Backing up ${app}…`); const d = await jpost(`/api/backup/app/${enc(app)}`); toast(`Backup saved (${fmtSize(d.size)})`); }
+    else if (act === 'bk_restore') {
+      if (!await confirmBox('Restore backup', `Replace this app's files with the backup ${file}? A safety snapshot of the current state is taken first, and the app restarts if it was running.`, 'Restore')) return;
+      toast('Restoring…', 'amber'); const d = await jpost('/api/backup/restore', { file }); toast('Restored: ' + d.restored.join(', ')); refresh();
+    } else if (act === 'bk_copy') {
+      const nm = (prompt('Restore as a NEW app named (letters, digits, - and _):') || '').trim(); if (!nm) return;
+      const d = await jpost('/api/backup/restore', { file, as_name: nm }); toast('Restored as ' + d.restored.join(', ') + ' (not started)'); refresh();
+    } else if (act === 'bk_del') {
+      if (!await confirmBox('Delete backup', `Permanently delete ${file}?`)) return;
+      await jpost('/api/backup/delete', { file }); toast('Backup deleted', 'amber');
+    }
+    loadBackups();
+  } catch (e) { toast(e.message, 'red'); } finally { btn.disabled = false; }
+});
+
+/* ---------------- per-app "Data" tab ---------------- */
+function renderData(S) {
+  const a = S.a, f = S.f; if (!a) return;
+  const bl = bkData ? bkData.backups.filter(b => b.app === S.name) : [], bsum = a.backup || { count: 0, bytes: 0 };
+  if (document.activeElement !== f.autoBackup) f.autoBackup.checked = !!a.auto_backup;
+  const ext = (a.db_hints || []).filter(x => x !== 'sqlite' && x !== 'sqlalchemy');
+  setHTML(f.dataBox, `
+    <div class="kv"><span>Total <b>${fmtSize(a.storage_bytes)}</b></span><span>Databases <b>${fmtSize(a.db_size)}</b></span><span>Code &amp; files <b>${fmtSize(a.storage_bytes - a.db_size)}</b></span><span>Backups <b>${fmtSize(bsum.bytes)}</b> ×${bsum.count}</span></div>
+    <div class="section-label">Databases inside this app's folder</div>
+    ${(a.dbs || []).map(x => `<div class="file-row"><span class="fname">${esc(x.name)}</span><span class="sz">${fmtSize(x.size)}</span></div>`).join('') || '<div class="hint">No SQLite / .db files found.</div>'}
+    ${(a.db_hints || []).length ? `<div class="hint">Code uses: <b>${esc(a.db_hints.join(', '))}</b>.${ext.length ? ' External database servers are <b>not</b> in these backups — export them separately (pg_dump, mysqldump, mongodump).' : ''}</div>` : ''}
+    <div class="section-label">Backups of this app</div>
+    <div class="btn-row" style="margin:0 0 10px"><button class="btn btn-primary btn-sm" data-act="bk_now" data-app="${esc(S.name)}">💾 Back up now</button></div>
+    ${bl.map(bkRow).join('') || '<div class="hint">No backups yet.</div>'}`);
+}
+
+showView((location.hash || '').slice(1));
 </script>
 {% endraw %}
 </body>
